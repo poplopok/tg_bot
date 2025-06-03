@@ -5,11 +5,11 @@ const hf = new HfInference(process.env.HUGGINGFACE_API_KEY)
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN
 const TELEGRAM_API_URL = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}`
 
-// Несколько моделей для повышения точности
+// Обновленный список моделей с fallback вариантами
 const EMOTION_MODELS = [
-  "cointegrated/rubert-base-cased-emotion", // Русскоязычная модель эмоций
-  "sismetanin/rubert-base-cased-russian-emotion-detection", // Альтернативная русская модель
-  "j-hartmann/emotion-english-distilroberta-base", // Английская модель как fallback
+  "cardiffnlp/twitter-roberta-base-emotion-multilingual-latest", // Мультиязычная модель
+  "j-hartmann/emotion-english-distilroberta-base", // Английская модель
+  "cointegrated/rubert-base-cased-emotion", // Русская модель (может не работать)
 ]
 
 interface TelegramMessage {
@@ -38,6 +38,7 @@ interface TelegramUpdate {
 // Функция для анализа эмоций с несколькими моделями
 async function analyzeEmotions(text: string) {
   const results = []
+  let workingModels = 0
 
   for (const model of EMOTION_MODELS) {
     try {
@@ -49,18 +50,28 @@ async function analyzeEmotions(text: string) {
         model,
         emotions: result,
       })
+      workingModels++
+
+      // Если хотя бы одна модель работает, можем продолжить
+      if (workingModels >= 1) {
+        console.log(`Successfully used model: ${model}`)
+      }
     } catch (error) {
-      console.error(`Error with model ${model}:`, error)
+      console.error(`Error with model ${model}:`, error.message)
+      // Продолжаем с следующей моделью
     }
+  }
+
+  if (results.length === 0) {
+    throw new Error("Ни одна модель эмоций не доступна")
   }
 
   // Агрегируем результаты
   const emotionScores: { [key: string]: number } = {}
-  let totalModels = 0
+  const totalModels = results.length
 
   results.forEach((result) => {
     if (result.emotions && Array.isArray(result.emotions)) {
-      totalModels++
       result.emotions.forEach((emotion: any) => {
         const label = emotion.label.toLowerCase()
         emotionScores[label] = (emotionScores[label] || 0) + emotion.score
@@ -73,7 +84,11 @@ async function analyzeEmotions(text: string) {
     emotionScores[emotion] /= totalModels
   })
 
-  return emotionScores
+  return {
+    emotions: emotionScores,
+    modelsUsed: results.length,
+    totalModelsAttempted: EMOTION_MODELS.length,
+  }
 }
 
 // Функция для обработки голосовых сообщений
@@ -190,7 +205,8 @@ export async function POST(request: NextRequest) {
     // Анализируем эмоции
     await sendTelegramMessage(chatId, "🤖 Анализирую эмоции...")
 
-    const emotions = await analyzeEmotions(textToAnalyze)
+    const analysisResult = await analyzeEmotions(textToAnalyze)
+    const emotions = analysisResult.emotions
 
     // Сохраняем в Supabase
     await saveToSupabase(userId, textToAnalyze, emotions, messageType)
@@ -207,6 +223,7 @@ export async function POST(request: NextRequest) {
     }
 
     responseText += `📝 <b>Текст:</b> ${textToAnalyze}\n\n`
+    responseText += `🤖 <b>Использовано моделей:</b> ${analysisResult.modelsUsed}/${analysisResult.totalModelsAttempted}\n`
     responseText += `🎯 <b>Обнаруженные эмоции:</b>\n`
 
     const emotionEmojis: { [key: string]: string } = {

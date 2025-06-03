@@ -2,7 +2,7 @@ import { type NextRequest, NextResponse } from "next/server"
 
 export async function POST(request: NextRequest) {
   try {
-    const botToken = process.env.TELEGRAM_BOT_TOKEN
+    const botToken = "7970844280:AAGNyTlzselT8E6XunCSqnxtvYWePd76JFk"
     const webhookUrl = `${process.env.VERCEL_URL || "https://your-app.vercel.app"}/api/webhook`
 
     if (!botToken) {

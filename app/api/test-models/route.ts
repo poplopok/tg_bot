@@ -8,32 +8,32 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Текст не предоставлен" }, { status: 400 })
     }
 
-    // Список РАБОЧИХ моделей для тестирования
+    // Список бесплатных моделей для тестирования
     const models = [
       {
-        name: "RoBERTa Sentiment",
-        id: "cardiffnlp/twitter-roberta-base-sentiment-latest",
+        name: "DistilBERT Sentiment Analysis",
+        id: "distilbert-base-uncased-finetuned-sst-2-english",
         type: "sentiment",
       },
       {
-        name: "DistilRoBERTa Emotion",
-        id: "j-hartmann/emotion-english-distilroberta-base",
-        type: "emotion",
-      },
-      {
-        name: "Multilingual BERT",
-        id: "nlptown/bert-base-multilingual-uncased-sentiment",
+        name: "BERT Sentiment Analysis",
+        id: "bert-base-uncased-finetuned-sst-2-english",
         type: "sentiment",
       },
       {
-        name: "BERT Base Sentiment",
-        id: "ProsusAI/finbert",
-        type: "sentiment",
+        name: "roberta-large-mnli",
+        id: "roberta-large-mnli",
+        type: "text-classification",
       },
       {
-        name: "DistilBERT Emotion",
-        id: "bhadresh-savani/distilbert-base-uncased-emotion",
-        type: "emotion",
+        name: "cross-encoder/nli-deberta-v3-base",
+        id: "cross-encoder/nli-deberta-v3-base",
+        type: "text-classification",
+      },
+      {
+        name: "finiteautomata/bertweet-base-sentiment-analysis",
+        id: "finiteautomata/bertweet-base-sentiment-analysis",
+        type: "sentiment",
       },
     ]
 
@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
       try {
         const response = await fetch(`https://api-inference.huggingface.co/models/${model.id}`, {
           headers: {
-            Authorization: `Bearer ${process.env.HUGGING_FACE_ACCESS_TOKEN}`,
+            Authorization: `Bearer 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`,
             "Content-Type": "application/json",
           },
           method: "POST",

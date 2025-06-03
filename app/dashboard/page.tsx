@@ -8,7 +8,10 @@ import { Progress } from "@/components/ui/progress"
 import { createClient } from "@supabase/supabase-js"
 import { MessageSquare, Users, AlertTriangle, TrendingUp, RefreshCw } from "lucide-react"
 
-const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
+const supabase = createClient(
+  "https://ikaufpurzmxnalsaffwa.supabase.co",
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlrYXVmcHVyem14bmFsc2FmZndhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDg0NDU2MjQsImV4cCI6MjA2NDAyMTYyNH0.A9dW6-FzZZsLOdhsxygHEgBmTqJXyS260QIcPB9IplA",
+)
 
 interface Message {
   id: number

@@ -1,181 +1,126 @@
 import { Bot, webhookCallback } from "grammy"
 import { createClient } from "@supabase/supabase-js"
 
-const bot = new Bot(process.env.TELEGRAM_BOT_TOKEN!)
+const bot = new Bot("7970844280:AAGNyTlzselT8E6XunCSqnxtvYWePd76JFk")
 
-const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
+const supabase = createClient(
+  "https://ikaufpurzmxnalsaffwa.supabase.co",
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlrYXVmcHVyem14bmFsc2FmZndhIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0ODQ0NTYyNCwiZXhwIjoyMDY0MDIxNjI0fQ.SERVICE_ROLE_KEY_HERE",
+)
 
-// Рабочие Hugging Face модели (проверенные)
-const WORKING_MODELS = {
-  sentiment: [
-    "cardiffnlp/twitter-roberta-base-sentiment-latest", // Работает стабильно
-    "nlptown/bert-base-multilingual-uncased-sentiment", // Мультиязычная
-    "j-hartmann/emotion-english-distilroberta-base", // Эмоции
-  ],
-  toxicity: [
-    "unitary/toxic-bert", // Альтернатива для токсичности
-    "martin-ha/toxic-classification-distilBERT", // Если доступна
-  ],
-  russian: [
-    "blanchefort/rubert-base-cased-sentiment", // Русский язык
-    "DeepPavlov/rubert-base-cased-sentence", // DeepPavlov
-  ],
-}
-
-// Анализ эмоций с рабочими моделями
+// Hugging Face API для анализа эмоций
 async function analyzeEmotionHF(text: string) {
   try {
-    // Пробуем модели по очереди
-    const modelsToTry = [
-      "cardiffnlp/twitter-roberta-base-sentiment-latest",
-      "j-hartmann/emotion-english-distilroberta-base",
-      "nlptown/bert-base-multilingual-uncased-sentiment",
-    ]
+    // Используем бесплатную модель для анализа эмоций на русском языке
+    const emotionResponse = await fetch(
+      "https://api-inference.huggingface.co/models/seara/rubert-base-cased-russian-sentiment",
+      {
+        headers: {
+          Authorization: `Bearer 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`,
+          "Content-Type": "application/json",
+        },
+        method: "POST",
+        body: JSON.stringify({ inputs: text }),
+      },
+    )
 
-    let emotionResult = null
-    let usedModel = ""
-
-    for (const model of modelsToTry) {
-      try {
-        const response = await fetch(`https://api-inference.huggingface.co/models/${model}`, {
-          headers: {
-            Authorization: `Bearer ${process.env.HUGGING_FACE_ACCESS_TOKEN}`,
-            "Content-Type": "application/json",
-          },
-          method: "POST",
-          body: JSON.stringify({ inputs: text }),
-        })
-
-        if (response.ok) {
-          const data = await response.json()
-          if (Array.isArray(data) && data[0] && Array.isArray(data[0])) {
-            emotionResult = data[0]
-            usedModel = model
-            break
-          }
-        }
-      } catch (error) {
-        console.log(`Модель ${model} недоступна, пробуем следующую...`)
-        continue
-      }
-    }
-
-    if (!emotionResult) {
+    if (!emotionResponse.ok) {
+      console.error(
+        `Ошибка при запросе к Hugging Face API (эмоции): ${emotionResponse.status} ${emotionResponse.statusText}`,
+      )
       return analyzeEmotionFallback(text)
     }
 
-    // Обработка результатов
-    const topResult = emotionResult[0]
-    let primaryEmotion = "нейтрально"
-    const confidence = topResult.score || 0.5
-    let sentiment = "neutral"
+    const emotionData = await emotionResponse.json()
 
-    // Маппинг результатов разных моделей
-    const label = topResult.label.toLowerCase()
+    // Анализ токсичности с помощью другой модели
+    const toxicityResponse = await fetch(
+      "https://api-inference.huggingface.co/models/martin-ha/toxic-classification-distilBERT",
+      {
+        headers: {
+          Authorization: `Bearer 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`,
+          "Content-Type": "application/json",
+        },
+        method: "POST",
+        body: JSON.stringify({ inputs: text }),
+      },
+    )
 
-    if (label.includes("positive") || label.includes("joy") || label.includes("happiness")) {
-      primaryEmotion = "радость"
-      sentiment = "positive"
-    } else if (label.includes("negative") || label.includes("sadness") || label.includes("anger")) {
-      primaryEmotion = "грусть"
-      sentiment = "negative"
-    } else if (label.includes("anger") || label.includes("disgust")) {
-      primaryEmotion = "гнев"
-      sentiment = "negative"
-    } else if (label.includes("fear")) {
-      primaryEmotion = "страх"
-      sentiment = "negative"
-    } else if (label.includes("surprise")) {
-      primaryEmotion = "удивление"
-      sentiment = "neutral"
-    } else {
-      primaryEmotion = "нейтрально"
-      sentiment = "neutral"
+    if (!toxicityResponse.ok) {
+      console.error(
+        `Ошибка при запросе к Hugging Face API (токсичность): ${toxicityResponse.status} ${toxicityResponse.statusText}`,
+      )
+      return analyzeEmotionFallback(text)
     }
 
-    // Простая детекция токсичности по ключевым словам (так как HF модели токсичности не работают)
-    const toxicity = calculateToxicity(text)
+    const toxicityData = await toxicityResponse.json()
+
+    // Обработка результатов эмоций
+    let primaryEmotion = "нейтрально"
+    let confidence = 0.5
+    let sentiment = "neutral"
+
+    if (Array.isArray(emotionData) && emotionData[0]) {
+      const topEmotion = emotionData[0][0]
+      if (topEmotion) {
+        // Маппинг английских меток на русские
+        const emotionMap: { [key: string]: string } = {
+          POSITIVE: "радость",
+          NEGATIVE: "грусть",
+          NEUTRAL: "нейтрально",
+          LABEL_0: "негативно",
+          LABEL_1: "нейтрально",
+          LABEL_2: "позитивно",
+        }
+
+        primaryEmotion = emotionMap[topEmotion.label] || "нейтрально"
+        confidence = topEmotion.score || 0.5
+
+        if (topEmotion.label === "POSITIVE" || topEmotion.label === "LABEL_2") {
+          sentiment = "positive"
+        } else if (topEmotion.label === "NEGATIVE" || topEmotion.label === "LABEL_0") {
+          sentiment = "negative"
+        }
+      }
+    }
+
+    // Обработка результатов токсичности
+    let toxicity = 0
+    if (Array.isArray(toxicityData) && toxicityData[0]) {
+      const toxicResult = toxicityData[0].find((item: any) => item.label === "TOXIC" || item.label === "LABEL_1")
+      if (toxicResult) {
+        toxicity = toxicResult.score || 0
+      }
+    }
 
     return {
       primary_emotion: primaryEmotion,
       confidence: confidence,
       toxicity: toxicity,
       sentiment: sentiment,
-      explanation: `Анализ: ${usedModel.split("/")[1]} (${Math.round(confidence * 100)}%)`,
+      explanation: `Анализ выполнен с помощью RuBERT (уверенность: ${Math.round(confidence * 100)}%)`,
     }
   } catch (error) {
     console.error("Ошибка анализа HF:", error)
+
+    // Fallback: простой анализ по ключевым словам
     return analyzeEmotionFallback(text)
   }
 }
 
-// Расчет токсичности по ключевым словам
-function calculateToxicity(text: string): number {
-  const lowerText = text.toLowerCase()
-  const toxicWords = [
-    // Русские токсичные слова
-    "идиот",
-    "дурак",
-    "тупой",
-    "кретин",
-    "дебил",
-    "урод",
-    "мразь",
-    "говно",
-    "херня",
-    "бесит",
-    "достало",
-    "ненавижу",
-    // Английские
-    "stupid",
-    "idiot",
-    "hate",
-    "damn",
-    "shit",
-  ]
-
-  let toxicity = 0
-  for (const word of toxicWords) {
-    if (lowerText.includes(word)) {
-      toxicity += 0.25
-    }
-  }
-
-  // Дополнительные паттерны
-  if (text.match(/[А-ЯЁ]{3,}/)) toxicity += 0.1 // Много заглавных букв
-  if (text.match(/!{3,}/)) toxicity += 0.1 // Много восклицательных знаков
-  if (text.match(/\?{3,}/)) toxicity += 0.05 // Много вопросительных знаков
-
-  return Math.min(toxicity, 1)
-}
-
-// Fallback анализ эмоций по ключевым словам
+// Fallback анализ эмоций по ключевым словам (если HF недоступен)
 function analyzeEmotionFallback(text: string) {
   const lowerText = text.toLowerCase()
 
   const emotionKeywords = {
-    радость: [
-      "отлично",
-      "супер",
-      "здорово",
-      "классно",
-      "прекрасно",
-      "замечательно",
-      "круто",
-      "ура",
-      "браво",
-      "😊",
-      "😄",
-      "👍",
-      "🎉",
-      "💪",
-    ],
-    грусть: ["грустно", "печально", "плохо", "расстроен", "огорчен", "тоскливо", "😢", "😔", "💔", "😞"],
-    гнев: ["бесит", "злость", "ярость", "достало", "надоело", "возмущен", "негодую", "😡", "🤬", "💢"],
-    страх: ["боюсь", "страшно", "паника", "ужас", "тревожно", "волнуюсь", "😰", "😨", "😱"],
-    удивление: ["удивлен", "неожиданно", "вау", "ого", "ничего себе", "😲", "😮", "🤯"],
-    нейтрально: ["нормально", "хорошо", "понятно", "ясно", "согласен", "принято"],
+    радость: ["отлично", "супер", "здорово", "классно", "прекрасно", "😊", "😄", "👍", "🎉"],
+    грусть: ["грустно", "печально", "плохо", "расстроен", "😢", "😔", "💔"],
+    гнев: ["бесит", "злость", "ярость", "достало", "идиот", "дурак", "😡", "🤬"],
+    страх: ["боюсь", "страшно", "паника", "ужас", "😰", "😨"],
+    нейтрально: ["нормально", "хорошо", "понятно", "ясно"],
   }
+
+  const toxicWords = ["идиот", "дурак", "тупой", "кретин", "говно", "херня"]
 
   let maxScore = 0
   let primaryEmotion = "нейтрально"
@@ -193,21 +138,125 @@ function analyzeEmotionFallback(text: string) {
     }
   }
 
-  const toxicity = calculateToxicity(text)
+  let toxicity = 0
+  for (const toxicWord of toxicWords) {
+    if (lowerText.includes(toxicWord)) {
+      toxicity += 0.3
+    }
+  }
+  toxicity = Math.min(toxicity, 1)
 
   const sentiment =
     primaryEmotion === "радость"
       ? "positive"
-      : ["грусть", "гнев", "страх"].includes(primaryEmotion)
+      : primaryEmotion === "грусть" || primaryEmotion === "гнев"
         ? "negative"
         : "neutral"
 
   return {
     primary_emotion: primaryEmotion,
-    confidence: Math.min(maxScore, 1) || 0.5,
+    confidence: Math.min(maxScore, 1),
     toxicity: toxicity,
     sentiment: sentiment,
-    explanation: "Анализ по ключевым словам (HF модели недоступны)",
+    explanation: "Анализ по ключевым словам (HF модель недоступна)",
+  }
+}
+
+// Расширенный анализ эмоций с несколькими моделями
+async function analyzeEmotionAdvanced(text: string) {
+  try {
+    // Пробуем несколько моделей для более точного анализа
+    const models = [
+      "cardiffnlp/twitter-roberta-base-sentiment-latest",
+      "blanchefort/rubert-base-cased-sentiment",
+      "sismetanin/rubert-ru-sentiment-rusentiment",
+    ]
+
+    const results = []
+
+    for (const model of models) {
+      try {
+        const response = await fetch(`https://api-inference.huggingface.co/models/${model}`, {
+          headers: {
+            Authorization: `Bearer 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`,
+            "Content-Type": "application/json",
+          },
+          method: "POST",
+          body: JSON.stringify({ inputs: text }),
+        })
+
+        if (!response.ok) {
+          console.log(`Модель ${model} недоступна, пробуем следующую...`)
+          continue
+        }
+
+        if (response.ok) {
+          const data = await response.json()
+          if (Array.isArray(data) && data[0]) {
+            results.push({ model, data: data[0] })
+            break // Используем первую успешную модель
+          }
+        }
+      } catch (error) {
+        console.log(`Модель ${model} недоступна, пробуем следующую...`)
+        continue
+      }
+    }
+
+    if (results.length === 0) {
+      return analyzeEmotionFallback(text)
+    }
+
+    const result = results[0]
+    const topResult = result.data[0]
+
+    // Маппинг результатов
+    const emotionMap: { [key: string]: string } = {
+      POSITIVE: "радость",
+      NEGATIVE: "грусть",
+      NEUTRAL: "нейтрально",
+      LABEL_0: "негативно",
+      LABEL_1: "нейтрально",
+      LABEL_2: "позитивно",
+    }
+
+    const primaryEmotion = emotionMap[topResult.label] || "нейтрально"
+    const confidence = topResult.score || 0.5
+
+    let sentiment = "neutral"
+    if (topResult.label === "POSITIVE" || topResult.label === "LABEL_2") {
+      sentiment = "positive"
+    } else if (topResult.label === "NEGATIVE" || topResult.label === "LABEL_0") {
+      sentiment = "negative"
+    }
+
+    // Простая детекция токсичности по ключевым словам
+    const toxicWords = ["идиот", "дурак", "тупой", "кретин", "говно", "херня", "бесит", "достало"]
+    let toxicity = 0
+    const lowerText = text.toLowerCase()
+
+    for (const word of toxicWords) {
+      if (lowerText.includes(word)) {
+        toxicity += 0.25
+      }
+    }
+
+    // Дополнительная проверка на агрессивные паттерны
+    if (text.match(/[А-ЯЁ]{3,}/)) toxicity += 0.1 // Много заглавных букв
+    if (text.match(/!{2,}/)) toxicity += 0.1 // Много восклицательных знаков
+
+    toxicity = Math.min(toxicity, 1)
+
+    return {
+      primary_emotion: primaryEmotion,
+      confidence: confidence,
+      toxicity: toxicity,
+      sentiment: sentiment,
+      explanation: `Анализ: ${result.model.split("/")[1]} (${Math.round(confidence * 100)}%)`,
+    }
+  } catch (error) {
+    console.error("Ошибка расширенного анализа:", error)
+    return analyzeEmotionFallback(text)
   }
 }
 
@@ -263,73 +312,40 @@ async function saveMessage(chatId: number, userId: number, username: string, tex
 bot.command("start", async (ctx) => {
   await ctx.reply(
     "🤖 Привет! Я бот для анализа эмоций с использованием Hugging Face моделей.\n\n" +
-      "🧠 Использую RoBERTa и BERT модели для анализа текста\n" +
-      "📊 Определяю эмоции, тональность и токсичность\n" +
-      "🆓 Полностью бесплатное решение!\n\n" +
+      "🧠 Использую RuBERT и другие BERT-модели для анализа русского текста\n" +
+      "📊 Определяю эмоции, тональность и токсичность\n\n" +
       "Команды:\n" +
       "/start - начать работу\n" +
       "/help - помощь\n" +
       "/stats - статистика чата\n" +
       "/mood - общее настроение\n" +
-      "/models - информация о моделях\n" +
-      "/test - тест анализа",
+      "/models - информация о моделях",
   )
-})
-
-bot.command("test", async (ctx) => {
-  const testTexts = [
-    "Отличная работа! Все супер! 😊",
-    "Ужасно, все плохо, достало уже 😡",
-    "Нормально, все в порядке",
-    "Боюсь, что не получится 😰",
-  ]
-
-  let response = "🧪 **Тест анализа эмоций:**\n\n"
-
-  for (const text of testTexts) {
-    const analysis = await analyzeEmotionHF(text)
-    response += `📝 "${text}"\n`
-    response += `😊 Эмоция: ${analysis.primary_emotion} (${Math.round(analysis.confidence * 100)}%)\n`
-    response += `📊 Тональность: ${analysis.sentiment}\n`
-    if (analysis.toxicity > 0.2) {
-      response += `⚠️ Токсичность: ${Math.round(analysis.toxicity * 100)}%\n`
-    }
-    response += `🤖 ${analysis.explanation}\n\n`
-  }
-
-  await ctx.reply(response, { parse_mode: "Markdown" })
 })
 
 bot.command("models", async (ctx) => {
   await ctx.reply(
-    "🧠 **Используемые AI модели:**\n\n" +
+    "🧠 Используемые AI модели:\n\n" +
       "📝 **Анализ эмоций:**\n" +
-      "• RoBERTa Sentiment (cardiffnlp/twitter-roberta-base-sentiment-latest)\n" +
-      "• DistilRoBERTa Emotion (j-hartmann/emotion-english-distilroberta-base)\n" +
-      "• Multilingual BERT (nlptown/bert-base-multilingual-uncased-sentiment)\n\n" +
+      "• cardiffnlp/twitter-roberta-base-sentiment-latest\n" +
+      "• BlancheFort RuBERT (blanchefort/rubert-base-cased-sentiment)\n" +
+      "• RuSentiment BERT (sismetanin/rubert-ru-sentiment-rusentiment)\n\n" +
       "🛡️ **Детекция токсичности:**\n" +
-      "• Анализ по ключевым словам\n" +
-      "• Паттерны агрессивного поведения\n\n" +
-      "💡 **Особенности:**\n" +
-      "• Все модели бесплатны\n" +
-      "• Fallback на ключевые слова\n" +
-      "• Поддержка русского и английского\n" +
-      "• Работает даже если HF недоступен",
-    { parse_mode: "Markdown" },
+      "• DistilBERT Toxic (martin-ha/toxic-classification-distilBERT)\n" +
+      "• Ключевые слова (fallback)\n\n" +
+      "💡 Все модели бесплатны и работают через Hugging Face Inference API",
   )
 })
 
 bot.command("help", async (ctx) => {
   await ctx.reply(
-    "🔍 **Как я работаю:**\n\n" +
-      "• Анализирую эмоции с помощью BERT/RoBERTa моделей\n" +
+    "🔍 Как я работаю:\n\n" +
+      "• Анализирую эмоции с помощью BERT-моделей\n" +
       "• Определяю токсичность и тональность\n" +
       "• Работаю с русским и английским языками\n" +
       "• Сохраняю статистику для аналитики\n\n" +
-      "🆓 **Использую только бесплатные модели!**\n" +
-      "💬 Просто пишите как обычно, я буду анализировать автоматически!\n\n" +
-      "🧪 Используйте /test для проверки работы анализа",
-    { parse_mode: "Markdown" },
+      "🆓 Использую только бесплатные модели!\n" +
+      "💬 Просто пишите как обычно, я буду анализировать автоматически!",
   )
 })
 
@@ -338,6 +354,7 @@ bot.command("stats", async (ctx) => {
     const chatId = ctx.chat?.id
     if (!chatId) return
 
+    // Получаем статистику за последние 24 часа
     const { data: messages, error } = await supabase
       .from("messages")
       .select(`
@@ -364,12 +381,14 @@ bot.command("stats", async (ctx) => {
     }, {})
 
     const topEmotion = Object.entries(emotionCounts).sort(([, a], [, b]) => (b as number) - (a as number))[0]
+
     const avgToxicity = messages.reduce((sum, m) => sum + (m.emotion_analysis?.[0]?.toxicity || 0), 0) / totalMessages
+
     const avgConfidence =
       messages.reduce((sum, m) => sum + (m.emotion_analysis?.[0]?.confidence || 0), 0) / totalMessages
 
     await ctx.reply(
-      `📊 **Статистика чата за 24 часа:**\n\n` +
+      `📊 Статистика чата за 24 часа:\n\n` +
         `💬 Всего сообщений: ${totalMessages}\n` +
         `😊 Основная эмоция: ${topEmotion?.[0] || "нет данных"} (${topEmotion?.[1] || 0})\n` +
         `⚠️ Токсичных сообщений: ${toxicMessages}\n` +
@@ -377,7 +396,6 @@ bot.command("stats", async (ctx) => {
         `🎯 Средняя уверенность: ${(avgConfidence * 100).toFixed(1)}%\n\n` +
         `🤖 Анализ выполнен с помощью Hugging Face моделей\n` +
         `${avgToxicity > 0.3 ? "🚨 Рекомендуется модерация" : "✅ Атмосфера в норме"}`,
-      { parse_mode: "Markdown" },
     )
   } catch (error) {
     console.error("Ошибка получения статистики:", error)
@@ -390,6 +408,7 @@ bot.command("mood", async (ctx) => {
     const chatId = ctx.chat?.id
     if (!chatId) return
 
+    // Получаем последние 10 сообщений
     const { data: messages, error } = await supabase
       .from("messages")
       .select(`
@@ -414,6 +433,7 @@ bot.command("mood", async (ctx) => {
     const negative = sentiments.filter((s) => s === "negative").length
     const neutral = sentiments.filter((s) => s === "neutral").length
 
+    // Подсчет эмоций
     const emotionCounts = emotions.reduce((acc: any, emotion) => {
       acc[emotion] = (acc[emotion] || 0) + 1
       return acc
@@ -436,18 +456,16 @@ bot.command("mood", async (ctx) => {
 
     let emotionText = ""
     if (topEmotions.length > 0) {
-      emotionText =
-        "\n\n🎭 **Топ эмоции:**\n" + topEmotions.map(([emotion, count]) => `• ${emotion}: ${count}`).join("\n")
+      emotionText = "\n\n🎭 Топ эмоции:\n" + topEmotions.map(([emotion, count]) => `• ${emotion}: ${count}`).join("\n")
     }
 
     await ctx.reply(
-      `🌡️ **Настроение чата:** ${moodEmoji} ${moodText}\n\n` +
+      `🌡️ Настроение чата: ${moodEmoji} ${moodText}\n\n` +
         `📊 Из последних ${messages.length} сообщений:\n` +
         `😊 Позитивных: ${positive}\n` +
         `😔 Негативных: ${negative}\n` +
         `😐 Нейтральных: ${neutral}` +
         emotionText,
-      { parse_mode: "Markdown" },
     )
   } catch (error) {
     console.error("Ошибка анализа настроения:", error)
@@ -463,8 +481,8 @@ bot.on("message:text", async (ctx) => {
     const userId = ctx.from.id
     const username = ctx.from.username || ctx.from.first_name || "Unknown"
 
-    // Анализируем эмоции
-    const analysis = await analyzeEmotionHF(text)
+    // Анализируем эмоции с помощью HF моделей
+    const analysis = await analyzeEmotionAdvanced(text)
 
     // Сохраняем в базу данных
     await saveMessage(chatId, userId, username, text, analysis)
@@ -478,6 +496,8 @@ bot.on("message:text", async (ctx) => {
       удивление: "😲",
       отвращение: "🤢",
       нейтрально: "😐",
+      позитивно: "😊",
+      негативно: "😔",
     }
 
     const emoji = emotionEmojis[analysis.primary_emotion] || "🤔"

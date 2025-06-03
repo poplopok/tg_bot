@@ -8,31 +8,31 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Текст не предоставлен" }, { status: 400 })
     }
 
-    // Список бесплатных моделей для тестирования
+    // Список РАБОЧИХ моделей для тестирования
     const models = [
       {
-        name: "RuBERT Sentiment",
-        id: "seara/rubert-base-cased-russian-sentiment",
+        name: "RoBERTa Sentiment",
+        id: "cardiffnlp/twitter-roberta-base-sentiment-latest",
         type: "sentiment",
       },
       {
-        name: "BlancheFort RuBERT",
-        id: "blanchefort/rubert-base-cased-sentiment",
-        type: "sentiment",
-      },
-      {
-        name: "RuSentiment BERT",
-        id: "sismetanin/rubert-ru-sentiment-rusentiment",
-        type: "sentiment",
-      },
-      {
-        name: "Toxic Classification",
-        id: "martin-ha/toxic-classification-distilBERT",
-        type: "toxicity",
-      },
-      {
-        name: "Emotion Detection",
+        name: "DistilRoBERTa Emotion",
         id: "j-hartmann/emotion-english-distilroberta-base",
+        type: "emotion",
+      },
+      {
+        name: "Multilingual BERT",
+        id: "nlptown/bert-base-multilingual-uncased-sentiment",
+        type: "sentiment",
+      },
+      {
+        name: "BERT Base Sentiment",
+        id: "ProsusAI/finbert",
+        type: "sentiment",
+      },
+      {
+        name: "DistilBERT Emotion",
+        id: "bhadresh-savani/distilbert-base-uncased-emotion",
         type: "emotion",
       },
     ]
@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
       try {
         const response = await fetch(`https://api-inference.huggingface.co/models/${model.id}`, {
           headers: {
-            Authorization: `Bearer ${process.env.HUGGINGFACE_API_KEY}`,
+            Authorization: `Bearer ${process.env.HUGGING_FACE_ACCESS_TOKEN}`,
             "Content-Type": "application/json",
           },
           method: "POST",

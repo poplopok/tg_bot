@@ -7,6 +7,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Badge } from "@/components/ui/badge"
 
 export default function HomePage() {
   const [testResults, setTestResults] = useState<any[]>([])
@@ -14,6 +15,21 @@ export default function HomePage() {
   const [testText, setTestText] = useState("Я очень счастлив сегодня!")
   const [webhookMessage, setWebhookMessage] = useState("")
   const [webhookSuccess, setWebhookSuccess] = useState(false)
+  const [modelSearchResults, setModelSearchResults] = useState<any>(null)
+
+  // Поиск доступных моделей
+  const findAvailableModels = async () => {
+    setIsLoading(true)
+    try {
+      const response = await fetch("/api/test/find-models")
+      const data = await response.json()
+      setModelSearchResults(data)
+      setTestResults((prev) => [...prev, { type: "Model Search", status: "✅", data }])
+    } catch (error) {
+      setTestResults((prev) => [...prev, { type: "Model Search", status: "❌", data: { error: error.message } }])
+    }
+    setIsLoading(false)
+  }
 
   // Тест API эмоций
   const testEmotionAPI = async () => {
@@ -98,7 +114,10 @@ export default function HomePage() {
     }
   }
 
-  const clearResults = () => setTestResults([])
+  const clearResults = () => {
+    setTestResults([])
+    setModelSearchResults(null)
+  }
 
   return (
     <div className="container mx-auto p-4 max-w-4xl">
@@ -107,40 +126,77 @@ export default function HomePage() {
         <p className="text-gray-600">Настройка и тестирование системы анализа эмоций</p>
       </div>
 
-      <Tabs defaultValue="setup" className="w-full">
-        <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="setup">🚀 Настройка</TabsTrigger>
+      <Tabs defaultValue="models" className="w-full">
+        <TabsList className="grid w-full grid-cols-4">
+          <TabsTrigger value="models">🔍 Поиск моделей</TabsTrigger>
           <TabsTrigger value="test">🧪 Тестирование</TabsTrigger>
+          <TabsTrigger value="setup">🚀 Настройка</TabsTrigger>
           <TabsTrigger value="instructions">📖 Инструкции</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="setup" className="space-y-4">
+        <TabsContent value="models" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle>Настройка Telegram бота</CardTitle>
-              <CardDescription>Настройте webhook для вашего Telegram бота</CardDescription>
+              <CardTitle>🔍 Поиск доступных моделей</CardTitle>
+              <CardDescription>Найдем модели Hugging Face, к которым у вас есть доступ</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="bg-gray-50 p-4 rounded-lg">
-                <h3 className="font-semibold mb-3">📋 Чек-лист настройки:</h3>
-                <div className="space-y-2 text-sm">
-                  <div>1. ✅ Создан Telegram бот через @BotFather</div>
-                  <div>2. ✅ Получен токен бота (TELEGRAM_BOT_TOKEN)</div>
-                  <div>3. ✅ Получен API ключ Hugging Face (HUGGINGFACE_API_KEY)</div>
-                  <div>4. ✅ Настроен Supabase проект</div>
-                  <div>5. ✅ Добавлены переменные окружения в Vercel</div>
-                  <div>6. ⏳ Установлен webhook (нажмите кнопку ниже)</div>
-                </div>
-              </div>
-
-              <Button onClick={setupWebhook} disabled={isLoading} className="w-full">
-                {isLoading ? "Настройка..." : "🔗 Настроить Webhook"}
+              <Button onClick={findAvailableModels} disabled={isLoading} className="w-full">
+                {isLoading ? "Поиск моделей..." : "🔍 Найти доступные модели"}
               </Button>
 
-              {webhookMessage && (
-                <Alert className={webhookSuccess ? "border-green-500" : "border-red-500"}>
-                  <AlertDescription>{webhookMessage}</AlertDescription>
-                </Alert>
+              {modelSearchResults && (
+                <div className="space-y-4">
+                  <Alert className="border-green-500">
+                    <AlertDescription>
+                      <div className="font-medium">
+                        ✅ Найдено рабочих моделей: {modelSearchResults.working_count} из{" "}
+                        {modelSearchResults.total_tested}
+                      </div>
+                      {modelSearchResults.recommendation && (
+                        <div className="mt-2 text-sm">
+                          <strong>Рекомендация:</strong> {modelSearchResults.recommendation}
+                        </div>
+                      )}
+                    </AlertDescription>
+                  </Alert>
+
+                  {modelSearchResults.working_models.length > 0 && (
+                    <div>
+                      <h3 className="font-semibold mb-2">✅ Рабочие модели:</h3>
+                      <div className="space-y-2">
+                        {modelSearchResults.working_models.map((model: any, index: number) => (
+                          <div key={index} className="p-3 bg-green-50 rounded-lg">
+                            <div className="flex items-center gap-2 mb-2">
+                              <Badge variant="outline" className="bg-green-100">
+                                {model.status}
+                              </Badge>
+                              <code className="text-sm">{model.model}</code>
+                            </div>
+                            <pre className="text-xs bg-white p-2 rounded overflow-auto max-h-20">
+                              {JSON.stringify(model.sample_result, null, 2)}
+                            </pre>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {modelSearchResults.failed_models.length > 0 && (
+                    <details className="mt-4">
+                      <summary className="cursor-pointer font-semibold">
+                        ❌ Недоступные модели ({modelSearchResults.failed_models.length})
+                      </summary>
+                      <div className="mt-2 space-y-2">
+                        {modelSearchResults.failed_models.map((model: any, index: number) => (
+                          <div key={index} className="p-2 bg-red-50 rounded text-sm">
+                            <code>{model.model}</code>: {model.error}
+                          </div>
+                        ))}
+                      </div>
+                    </details>
+                  )}
+                </div>
               )}
             </CardContent>
           </Card>
@@ -207,6 +263,38 @@ export default function HomePage() {
           </Card>
         </TabsContent>
 
+        <TabsContent value="setup" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Настройка Telegram бота</CardTitle>
+              <CardDescription>Настройте webhook для вашего Telegram бота</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="bg-gray-50 p-4 rounded-lg">
+                <h3 className="font-semibold mb-3">📋 Чек-лист настройки:</h3>
+                <div className="space-y-2 text-sm">
+                  <div>1. ✅ Создан Telegram бот через @BotFather</div>
+                  <div>2. ✅ Получен токен бота (TELEGRAM_BOT_TOKEN)</div>
+                  <div>3. ✅ Получен API ключ Hugging Face (HUGGINGFACE_API_KEY)</div>
+                  <div>4. ✅ Настроен Supabase проект</div>
+                  <div>5. ✅ Добавлены переменные окружения в Vercel</div>
+                  <div>6. ⏳ Установлен webhook (нажмите кнопку ниже)</div>
+                </div>
+              </div>
+
+              <Button onClick={setupWebhook} disabled={isLoading} className="w-full">
+                {isLoading ? "Настройка..." : "🔗 Настроить Webhook"}
+              </Button>
+
+              {webhookMessage && (
+                <Alert className={webhookSuccess ? "border-green-500" : "border-red-500"}>
+                  <AlertDescription>{webhookMessage}</AlertDescription>
+                </Alert>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
         <TabsContent value="instructions" className="space-y-4">
           <Card>
             <CardHeader>
@@ -219,7 +307,7 @@ export default function HomePage() {
                   <h3 className="font-semibold mb-2">🔧 Переменные окружения:</h3>
                   <pre className="text-xs bg-white p-2 rounded border">
                     {`TELEGRAM_BOT_TOKEN=1234567890:AAAA... (от @BotFather)
-HUGGINGFACE_API_KEY=hf_... (с huggingface.co/settings/tokens)
+HUGGINGFACE_API_KEY=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
 WEBHOOK_URL=https://your-app.vercel.app
 NEXT_PUBLIC_SUPABASE_URL=https://xxx.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=eyJ... (service_role ключ)`}
@@ -229,6 +317,7 @@ SUPABASE_SERVICE_ROLE_KEY=eyJ... (service_role ключ)`}
                 <div className="bg-green-50 p-4 rounded-lg">
                   <h3 className="font-semibold mb-2">🚀 Порядок запуска:</h3>
                   <ol className="list-decimal list-inside space-y-1 text-sm">
+                    <li>Сначала найдите доступные модели на вкладке "Поиск моделей"</li>
                     <li>Убедитесь, что все тесты на вкладке "Тестирование" проходят успешно ✅</li>
                     <li>На вкладке "Настройка" установите webhook</li>
                     <li>Найдите вашего бота в Telegram по username</li>
@@ -236,37 +325,6 @@ SUPABASE_SERVICE_ROLE_KEY=eyJ... (service_role ключ)`}
                       Отправьте команду <code>/start</code>
                     </li>
                     <li>Отправьте текстовое или голосовое сообщение для анализа</li>
-                  </ol>
-                </div>
-
-                <div className="bg-yellow-50 p-4 rounded-lg">
-                  <h3 className="font-semibold mb-2">🔍 Диагностика проблем:</h3>
-                  <ul className="list-disc list-inside space-y-1 text-sm">
-                    <li>
-                      <strong>Бот не отвечает:</strong> Проверьте webhook и токен
-                    </li>
-                    <li>
-                      <strong>Ошибки с эмоциями:</strong> Проверьте HUGGINGFACE_API_KEY
-                    </li>
-                    <li>
-                      <strong>Не сохраняется в базу:</strong> Выполните SQL схему в Supabase
-                    </li>
-                    <li>
-                      <strong>404 ошибки:</strong> Проверьте деплой на Vercel
-                    </li>
-                  </ul>
-                </div>
-
-                <div className="bg-purple-50 p-4 rounded-lg">
-                  <h3 className="font-semibold mb-2">📱 Создание бота в Telegram:</h3>
-                  <ol className="list-decimal list-inside space-y-1 text-sm">
-                    <li>Найдите @BotFather в Telegram</li>
-                    <li>
-                      Отправьте команду <code>/newbot</code>
-                    </li>
-                    <li>Выберите имя и username для бота</li>
-                    <li>Скопируйте полученный токен</li>
-                    <li>Добавьте токен в переменные окружения</li>
                   </ol>
                 </div>
               </div>

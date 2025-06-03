@@ -96,7 +96,11 @@ export default function HomePage() {
             <div>
               <label className="text-sm font-medium">Webhook URL</label>
               <div className="flex space-x-2 mt-1">
-                <Input value={`${window.location.origin}/api/telegram`} readOnly className="flex-1" />
+                <Input
+                  value={typeof window !== "undefined" ? `${window.location.origin}/api/telegram` : "/api/telegram"}
+                  readOnly
+                  className="flex-1"
+                />
                 <Button onClick={setupWebhook}>Настроить Webhook</Button>
               </div>
             </div>

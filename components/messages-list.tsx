@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { Mic, MessageSquare } from "lucide-react"
+import { Mic, MessageSquare, RefreshCw } from "lucide-react"
+import { Button } from "@/components/ui/button"
 
 interface Message {
   id: string
@@ -24,10 +25,11 @@ interface Message {
 export function MessagesList() {
   const [messages, setMessages] = useState<Message[]>([])
   const [loading, setLoading] = useState(true)
+  const [lastUpdate, setLastUpdate] = useState<Date>(new Date())
 
   useEffect(() => {
     fetchMessages()
-    const interval = setInterval(fetchMessages, 5000) // Обновляем каждые 5 секунд
+    const interval = setInterval(fetchMessages, 10000) // Обновляем каждые 10 секунд
     return () => clearInterval(interval)
   }, [])
 
@@ -43,10 +45,12 @@ export function MessagesList() {
       const result = await response.json()
       console.log("📨 Messages received:", result)
 
-      if (result.success && result.messages) {
+      if (result.success && result.messages && result.messages.length > 0) {
         setMessages(result.messages)
+        setLastUpdate(new Date())
+        console.log(`✅ Loaded ${result.messages.length} real messages`)
       } else {
-        console.warn("⚠️ No messages in response, using mock data")
+        console.warn("⚠️ No real messages, using mock data")
         setMessages(generateMockMessages())
       }
     } catch (error) {
@@ -86,7 +90,7 @@ export function MessagesList() {
     ]
 
     return mockMessages.map((msg, index) => ({
-      id: `msg-${index}`,
+      id: `mock-${index}`,
       ...msg,
       timestamp: new Date(Date.now() - index * 300000).toISOString(), // Каждые 5 минут назад
     }))
@@ -110,6 +114,8 @@ export function MessagesList() {
     return "Нейтральность"
   }
 
+  const hasRealData = messages.length > 0 && !messages[0].id.startsWith("mock-")
+
   if (loading) {
     return (
       <div className="space-y-4">
@@ -127,50 +133,81 @@ export function MessagesList() {
   }
 
   return (
-    <div className="space-y-4 max-h-96 overflow-y-auto">
-      {messages.map((message) => (
-        <div key={message.id} className="flex items-start space-x-3 p-4 border rounded-lg hover:bg-gray-50">
-          <Avatar>
-            <AvatarFallback>{message.username.charAt(0).toUpperCase()}</AvatarFallback>
-          </Avatar>
+    <div className="space-y-4">
+      {/* Header with refresh button */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center space-x-2">
+          <h3 className="font-medium">Последние сообщения</h3>
+          {!hasRealData && (
+            <Badge variant="secondary" className="text-xs">
+              Демо
+            </Badge>
+          )}
+        </div>
+        <div className="flex items-center space-x-2">
+          <span className="text-xs text-gray-500">
+            Обновлено: {lastUpdate.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}
+          </span>
+          <Button variant="ghost" size="sm" onClick={fetchMessages}>
+            <RefreshCw className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
 
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center justify-between mb-1">
-              <div className="flex items-center space-x-2">
-                <span className="font-medium text-sm">{message.username}</span>
-                {message.messageType === "voice" && <Mic className="h-4 w-4 text-blue-500" />}
-                {message.messageType === "video_note" && <MessageSquare className="h-4 w-4 text-purple-500" />}
+      {!hasRealData && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+          <p className="text-sm text-blue-800">
+            💬 Показаны демо-сообщения. Отправьте сообщения боту в Telegram для отображения реальных данных.
+          </p>
+        </div>
+      )}
+
+      {/* Messages list */}
+      <div className="space-y-4 max-h-96 overflow-y-auto">
+        {messages.map((message) => (
+          <div key={message.id} className="flex items-start space-x-3 p-4 border rounded-lg hover:bg-gray-50">
+            <Avatar>
+              <AvatarFallback>{message.username.charAt(0).toUpperCase()}</AvatarFallback>
+            </Avatar>
+
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center justify-between mb-1">
+                <div className="flex items-center space-x-2">
+                  <span className="font-medium text-sm">{message.username}</span>
+                  {message.messageType === "voice" && <Mic className="h-4 w-4 text-blue-500" />}
+                  {message.messageType === "video_note" && <MessageSquare className="h-4 w-4 text-purple-500" />}
+                </div>
+                <span className="text-xs text-gray-500">
+                  {new Date(message.timestamp).toLocaleTimeString("ru-RU", {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </span>
               </div>
-              <span className="text-xs text-gray-500">
-                {new Date(message.timestamp).toLocaleTimeString("ru-RU", {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
-              </span>
-            </div>
 
-            <p className="text-sm text-gray-900 mb-2 break-words">{message.text}</p>
+              <p className="text-sm text-gray-900 mb-2 break-words">{message.text}</p>
 
-            <div className="flex items-center space-x-2">
-              <Badge variant="secondary" className={getEmotionColor(message.emotions)}>
-                {getDominantEmotion(message.emotions)}
-              </Badge>
-
-              {message.emotions.toxicity > 0.5 && (
-                <Badge variant="destructive" className="text-xs">
-                  Токсичность: {(message.emotions.toxicity * 100).toFixed(0)}%
+              <div className="flex items-center space-x-2">
+                <Badge variant="secondary" className={getEmotionColor(message.emotions)}>
+                  {getDominantEmotion(message.emotions)}
                 </Badge>
-              )}
 
-              <Badge variant="outline" className="text-xs">
-                {message.emotions.sentiment === "positive" && "😊"}
-                {message.emotions.sentiment === "negative" && "😔"}
-                {message.emotions.sentiment === "neutral" && "😐"}
-              </Badge>
+                {message.emotions.toxicity > 0.5 && (
+                  <Badge variant="destructive" className="text-xs">
+                    Токсичность: {(message.emotions.toxicity * 100).toFixed(0)}%
+                  </Badge>
+                )}
+
+                <Badge variant="outline" className="text-xs">
+                  {message.emotions.sentiment === "positive" && "😊"}
+                  {message.emotions.sentiment === "negative" && "😔"}
+                  {message.emotions.sentiment === "neutral" && "😐"}
+                </Badge>
+              </div>
             </div>
           </div>
-        </div>
-      ))}
+        ))}
+      </div>
     </div>
   )
 }

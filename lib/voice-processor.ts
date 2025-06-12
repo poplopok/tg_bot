@@ -5,12 +5,57 @@ interface TranscriptionResponse {
 
 export async function transcribeVoice(audioUrl: string): Promise<string> {
   try {
+    console.log("🎤 Starting voice transcription for:", audioUrl)
+
     // Скачиваем аудио файл
     const audioResponse = await fetch(audioUrl)
-    const audioBuffer = await audioResponse.arrayBuffer()
+    if (!audioResponse.ok) {
+      throw new Error(`Failed to download audio: ${audioResponse.status}`)
+    }
 
-    // Используем Whisper API от OpenAI (бесплатная альтернativa - Hugging Face)
-    const transcriptionResponse = await fetch("https://api-inference.huggingface.co/models/openai/whisper-large-v3", {
+    const audioBuffer = await audioResponse.arrayBuffer()
+    console.log("📁 Audio downloaded, size:", audioBuffer.byteLength)
+
+    // Пробуем Hugging Face Whisper API
+    if (process.env.HUGGINGFACE_API_KEY) {
+      try {
+        console.log("🤖 Trying Hugging Face Whisper...")
+        const result = await transcribeWithHuggingFace(audioBuffer)
+        if (result) {
+          console.log("✅ Hugging Face transcription success:", result)
+          return result
+        }
+      } catch (error) {
+        console.error("❌ Hugging Face transcription failed:", error)
+      }
+    }
+
+    // Fallback на AssemblyAI если доступен
+    if (process.env.ASSEMBLYAI_API_KEY) {
+      try {
+        console.log("🔄 Trying AssemblyAI fallback...")
+        const result = await fallbackTranscription(audioBuffer)
+        if (result && result !== "[Не удалось распознать речь]") {
+          console.log("✅ AssemblyAI transcription success:", result)
+          return result
+        }
+      } catch (error) {
+        console.error("❌ AssemblyAI transcription failed:", error)
+      }
+    }
+
+    // Если все API недоступны, возвращаем заглушку
+    console.log("⚠️ All transcription services failed, using placeholder")
+    return "[Голосовое сообщение - транскрипция недоступна]"
+  } catch (error) {
+    console.error("❌ Voice transcription error:", error)
+    return "[Голосовое сообщение - ошибка обработки]"
+  }
+}
+
+async function transcribeWithHuggingFace(audioBuffer: ArrayBuffer): Promise<string | null> {
+  try {
+    const response = await fetch("https://api-inference.huggingface.co/models/openai/whisper-large-v3", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${process.env.HUGGINGFACE_API_KEY}`,
@@ -19,110 +64,120 @@ export async function transcribeVoice(audioUrl: string): Promise<string> {
       body: audioBuffer,
     })
 
-    if (!transcriptionResponse.ok) {
-      throw new Error(`Transcription failed: ${transcriptionResponse.statusText}`)
+    if (!response.ok) {
+      console.error("Hugging Face API error:", response.status, response.statusText)
+      return null
     }
 
-    const result = await transcriptionResponse.json()
+    const responseText = await response.text()
+    console.log("🔍 Hugging Face response:", responseText)
 
-    // Hugging Face Whisper возвращает объект с текстом
-    if (result.text) {
-      return result.text.trim()
+    // Проверяем, что ответ не содержит ошибку
+    if (responseText.includes("Not Found") || responseText.includes("error") || responseText.includes("Model")) {
+      console.error("Hugging Face API returned error:", responseText)
+      return null
     }
 
-    // Fallback на локальную обработку если API недоступен
-    return await fallbackTranscription(audioBuffer)
+    try {
+      const result = JSON.parse(responseText)
+      if (result.text) {
+        return result.text.trim()
+      }
+    } catch (parseError) {
+      console.error("Failed to parse Hugging Face response:", parseError)
+    }
+
+    return null
   } catch (error) {
-    console.error("Voice transcription error:", error)
-
-    // Возвращаем заглушку для продолжения анализа
-    return "[Голосовое сообщение - транскрипция недоступна]"
+    console.error("Hugging Face transcription error:", error)
+    return null
   }
 }
 
 async function fallbackTranscription(audioBuffer: ArrayBuffer): Promise<string> {
   try {
-    // Альтернативный API для транскрипции (например, AssemblyAI)
-    const response = await fetch("https://api.assemblyai.com/v2/transcript", {
+    if (!process.env.ASSEMBLYAI_API_KEY) {
+      return "[AssemblyAI API key not configured]"
+    }
+
+    // Сначала загружаем файл
+    const uploadResponse = await fetch("https://api.assemblyai.com/v2/upload", {
       method: "POST",
       headers: {
-        Authorization: process.env.ASSEMBLYAI_API_KEY || "",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        audio_data: Buffer.from(audioBuffer).toString("base64"),
-        language_code: "ru", // Поддержка русского языка
-      }),
-    })
-
-    const result = await response.json()
-    return result.text || "[Не удалось распознать речь]"
-  } catch (error) {
-    console.error("Fallback transcription failed:", error)
-    return "[Голосовое сообщение]"
-  }
-}
-
-// Функция для определения языка аудио
-export async function detectAudioLanguage(audioUrl: string): Promise<string> {
-  try {
-    const audioResponse = await fetch(audioUrl)
-    const audioBuffer = await audioResponse.arrayBuffer()
-
-    // Используем модель для определения языка
-    const response = await fetch("https://api-inference.huggingface.co/models/facebook/wav2vec2-xlsr-53-espeak-cv-ft", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${process.env.HUGGINGFACE_API_KEY}`,
+        Authorization: process.env.ASSEMBLYAI_API_KEY,
         "Content-Type": "application/octet-stream",
       },
       body: audioBuffer,
     })
 
-    const result = await response.json()
-    return result.language || "ru"
+    if (!uploadResponse.ok) {
+      throw new Error(`Upload failed: ${uploadResponse.status}`)
+    }
+
+    const uploadResult = await uploadResponse.json()
+    const audioUrl = uploadResult.upload_url
+
+    // Запускаем транскрипцию
+    const transcriptResponse = await fetch("https://api.assemblyai.com/v2/transcript", {
+      method: "POST",
+      headers: {
+        Authorization: process.env.ASSEMBLYAI_API_KEY,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        audio_url: audioUrl,
+        language_code: "ru", // Поддержка русского языка
+      }),
+    })
+
+    if (!transcriptResponse.ok) {
+      throw new Error(`Transcription request failed: ${transcriptResponse.status}`)
+    }
+
+    const transcriptResult = await transcriptResponse.json()
+    const transcriptId = transcriptResult.id
+
+    // Ждем завершения транскрипции (упрощенная версия)
+    // В реальном приложении нужно делать polling
+    await new Promise((resolve) => setTimeout(resolve, 5000))
+
+    // Получаем результат
+    const resultResponse = await fetch(`https://api.assemblyai.com/v2/transcript/${transcriptId}`, {
+      headers: {
+        Authorization: process.env.ASSEMBLYAI_API_KEY,
+      },
+    })
+
+    if (!resultResponse.ok) {
+      throw new Error(`Result fetch failed: ${resultResponse.status}`)
+    }
+
+    const result = await resultResponse.json()
+    return result.text || "[Не удалось распознать речь]"
   } catch (error) {
-    console.error("Language detection failed:", error)
-    return "ru" // По умолчанию русский
+    console.error("AssemblyAI transcription failed:", error)
+    return "[Не удалось распознать речь]"
   }
 }
 
-// Анализ эмоций в голосе (тон, интонация)
+// Функция для определения языка аудио
+export async function detectAudioLanguage(audioUrl: string): Promise<string> {
+  // Упрощенная версия - возвращаем русский по умолчанию
+  return "ru"
+}
+
+// Анализ эмоций в голосе (упрощенная версия)
 export async function analyzeVoiceEmotion(audioUrl: string): Promise<{
   emotion: string
   confidence: number
-  arousal: number // Возбуждение
-  valence: number // Валентность (позитив/негатив)
+  arousal: number
+  valence: number
 }> {
   try {
-    const audioResponse = await fetch(audioUrl)
-    const audioBuffer = await audioResponse.arrayBuffer()
+    console.log("🎵 Analyzing voice emotion...")
 
-    // Используем модель для анализа эмоций в речи
-    const response = await fetch(
-      "https://api-inference.huggingface.co/models/ehcalabres/wav2vec2-lg-xlsr-en-speech-emotion-recognition",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${process.env.HUGGINGFACE_API_KEY}`,
-          "Content-Type": "application/octet-stream",
-        },
-        body: audioBuffer,
-      },
-    )
-
-    const result = await response.json()
-
-    if (result && result.length > 0) {
-      const topEmotion = result[0]
-      return {
-        emotion: topEmotion.label,
-        confidence: topEmotion.score,
-        arousal: calculateArousal(topEmotion.label),
-        valence: calculateValence(topEmotion.label),
-      }
-    }
-
+    // Пока возвращаем нейтральные значения
+    // В будущем можно добавить реальный анализ эмоций в голосе
     return {
       emotion: "neutral",
       confidence: 0.5,

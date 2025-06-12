@@ -27,6 +27,7 @@ export function TeamAnalytics() {
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([])
   const [teamStats, setTeamStats] = useState<TeamStats | null>(null)
   const [loading, setLoading] = useState(true)
+  const [messageCount, setMessageCount] = useState(0)
 
   useEffect(() => {
     fetchTeamAnalytics()
@@ -34,8 +35,8 @@ export function TeamAnalytics() {
 
   const fetchTeamAnalytics = async () => {
     try {
-      console.log("👥 Fetching team analytics...")
-      const response = await fetch("/api/analytics?type=team")
+      console.log("👥 Fetching team analytics from API...")
+      const response = await fetch("/api/analytics/team")
 
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`)
@@ -45,17 +46,21 @@ export function TeamAnalytics() {
       console.log("📊 Team analytics received:", result)
 
       if (result.success) {
-        setTeamMembers(result.members || generateMockMembers())
-        setTeamStats(result.stats || generateMockStats())
+        setTeamMembers(result.members || [])
+        setTeamStats(result.stats || null)
+        setMessageCount(result.messageCount || 0)
+        console.log(`✅ Loaded analytics for ${result.members?.length || 0} team members`)
       } else {
-        console.warn("⚠️ No team data, using mock data")
+        console.warn("⚠️ No team data from API, using mock data")
         setTeamMembers(generateMockMembers())
         setTeamStats(generateMockStats())
+        setMessageCount(0)
       }
     } catch (error) {
       console.error("❌ Failed to fetch team analytics:", error)
       setTeamMembers(generateMockMembers())
       setTeamStats(generateMockStats())
+      setMessageCount(0)
     } finally {
       setLoading(false)
     }
@@ -119,83 +124,106 @@ export function TeamAnalytics() {
     )
   }
 
+  const hasRealData = messageCount > 0
+
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      {/* Team Overview */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Обзор команды</CardTitle>
-          <CardDescription>Общая статистика по команде</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          {teamStats && (
-            <>
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium">Общая позитивность</span>
-                <span className="text-2xl font-bold text-green-600">
-                  {(teamStats.averagePositivity * 100).toFixed(0)}%
-                </span>
-              </div>
-              <Progress value={teamStats.averagePositivity * 100} className="h-2" />
+    <div className="space-y-6">
+      {!hasRealData && (
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+          <p className="text-sm text-yellow-800">
+            👥 Показаны демо-данные. Добавьте бота в чат и отправьте сообщения для получения реальной аналитики команды.
+          </p>
+        </div>
+      )}
 
-              <div className="grid grid-cols-2 gap-4 pt-4">
-                <div className="text-center">
-                  <div className="text-2xl font-bold">{teamStats.totalMembers}</div>
-                  <div className="text-sm text-gray-600">Участников</div>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Team Overview */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Обзор команды</CardTitle>
+            <CardDescription>
+              {hasRealData ? "Статистика на основе реальных данных" : "Демонстрационные данные"}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            {teamStats && (
+              <>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium">Общая позитивность</span>
+                  <span className="text-2xl font-bold text-green-600">
+                    {(teamStats.averagePositivity * 100).toFixed(0)}%
+                  </span>
                 </div>
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-red-600">{teamStats.highRiskMembers}</div>
-                  <div className="text-sm text-gray-600">Группа риска</div>
-                </div>
-              </div>
+                <Progress value={teamStats.averagePositivity * 100} className="h-2" />
 
-              <div className="pt-4 border-t">
-                <div className="text-sm text-gray-600 mb-1">Пик активности</div>
-                <div className="text-lg font-semibold">{teamStats.mostActiveHour}</div>
-              </div>
-            </>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Team Members */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Участники команды</CardTitle>
-          <CardDescription>Индивидуальная аналитика по каждому участнику</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4 max-h-80 overflow-y-auto">
-            {teamMembers.map((member) => (
-              <div key={member.username} className="flex items-center space-x-3 p-3 border rounded-lg">
-                <Avatar>
-                  <AvatarFallback>{member.username.charAt(0).toUpperCase()}</AvatarFallback>
-                </Avatar>
-
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="font-medium text-sm">{member.username}</span>
-                    <Badge variant="outline" className={getRiskColor(member.riskLevel)}>
-                      {getRiskIcon(member.riskLevel)}
-                      <span className="ml-1 capitalize">{member.riskLevel}</span>
-                    </Badge>
+                <div className="grid grid-cols-2 gap-4 pt-4">
+                  <div className="text-center">
+                    <div className="text-2xl font-bold">{teamStats.totalMembers}</div>
+                    <div className="text-sm text-gray-600">Участников</div>
                   </div>
-
-                  <div className="flex items-center justify-between text-xs text-gray-600 mb-2">
-                    <span>{member.messageCount} сообщений</span>
-                    <span>{member.dominantEmotion}</span>
-                  </div>
-
-                  <div className="flex items-center space-x-2">
-                    <Progress value={member.averagePositivity * 100} className="h-1 flex-1" />
-                    <span className="text-xs font-medium">{(member.averagePositivity * 100).toFixed(0)}%</span>
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-red-600">{teamStats.highRiskMembers}</div>
+                    <div className="text-sm text-gray-600">Группа риска</div>
                   </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
+
+                <div className="pt-4 border-t">
+                  <div className="text-sm text-gray-600 mb-1">Пик активности</div>
+                  <div className="text-lg font-semibold">{teamStats.mostActiveHour}</div>
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Team Members */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Участники команды</CardTitle>
+            <CardDescription>
+              {hasRealData ? `Аналитика на основе ${messageCount} сообщений` : "Демонстрационная аналитика участников"}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4 max-h-80 overflow-y-auto">
+              {teamMembers.length === 0 ? (
+                <div className="text-center py-8 text-gray-500">
+                  <p>Нет данных об участниках</p>
+                  <p className="text-sm">Отправьте сообщения в чат для анализа</p>
+                </div>
+              ) : (
+                teamMembers.map((member) => (
+                  <div key={member.username} className="flex items-center space-x-3 p-3 border rounded-lg">
+                    <Avatar>
+                      <AvatarFallback>{member.username.charAt(0).toUpperCase()}</AvatarFallback>
+                    </Avatar>
+
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="font-medium text-sm">{member.username}</span>
+                        <Badge variant="outline" className={getRiskColor(member.riskLevel)}>
+                          {getRiskIcon(member.riskLevel)}
+                          <span className="ml-1 capitalize">{member.riskLevel}</span>
+                        </Badge>
+                      </div>
+
+                      <div className="flex items-center justify-between text-xs text-gray-600 mb-2">
+                        <span>{member.messageCount} сообщений</span>
+                        <span>{member.dominantEmotion}</span>
+                      </div>
+
+                      <div className="flex items-center space-x-2">
+                        <Progress value={member.averagePositivity * 100} className="h-1 flex-1" />
+                        <span className="text-xs font-medium">{(member.averagePositivity * 100).toFixed(0)}%</span>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   )
 }

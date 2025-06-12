@@ -21,24 +21,36 @@ interface EmotionResult {
 
 export async function analyzeEmotion(text: string, audioUrl?: string): Promise<EmotionResult> {
   try {
+    console.log("🧠 Analyzing emotion for text:", text.substring(0, 100) + "...")
+
     // Анализ текста
     const textEmotions = await analyzeTextEmotion(text)
 
     // Анализ голоса (если есть аудио)
     let voiceEmotion = undefined
     if (audioUrl) {
-      voiceEmotion = await analyzeVoiceEmotion(audioUrl)
+      try {
+        voiceEmotion = await analyzeVoiceEmotion(audioUrl)
+      } catch (error) {
+        console.error("Voice emotion analysis failed:", error)
+      }
     }
 
     // Комбинируем результаты текста и голоса
     const combinedResult = combineEmotionResults(textEmotions, voiceEmotion)
+
+    console.log("✅ Emotion analysis completed:", {
+      sentiment: combinedResult.sentiment,
+      toxicity: combinedResult.toxicity,
+      confidence: combinedResult.confidence,
+    })
 
     return {
       ...combinedResult,
       voiceEmotion,
     }
   } catch (error) {
-    console.error("Emotion analysis error:", error)
+    console.error("❌ Emotion analysis error:", error)
     return getDefaultEmotions()
   }
 }
@@ -51,54 +63,180 @@ async function analyzeTextEmotion(text: string): Promise<EmotionResult> {
     return getDefaultEmotions()
   }
 
-  try {
-    // Анализ эмоций через Hugging Face
-    const emotionResponse = await fetch(
-      "https://api-inference.huggingface.co/models/j-hartmann/emotion-english-distilroberta-base",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${process.env.HUGGINGFACE_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ inputs: cleanText }),
-      },
-    )
+  console.log("🔍 Analyzing preprocessed text:", cleanText)
 
-    // Анализ токсичности
-    const toxicityResponse = await fetch("https://api-inference.huggingface.co/models/martin-ha/toxic-comment-model", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${process.env.HUGGINGFACE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ inputs: cleanText }),
-    })
+  // Сначала пробуем rule-based анализ
+  const fallbackResult = await fallbackAnalysis(cleanText)
 
-    // Анализ тональности
-    const sentimentResponse = await fetch(
-      "https://api-inference.huggingface.co/models/cardiffnlp/twitter-roberta-base-sentiment-latest",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${process.env.HUGGINGFACE_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ inputs: cleanText }),
-      },
-    )
+  // Если есть Hugging Face API ключ, пробуем использовать API
+  if (process.env.HUGGINGFACE_API_KEY) {
+    try {
+      console.log("🤖 Trying Hugging Face API...")
 
-    const [emotionData, toxicityData, sentimentData] = await Promise.all([
-      emotionResponse.json(),
-      toxicityResponse.json(),
-      sentimentResponse.json(),
-    ])
-
-    return processEmotionResults(emotionData, toxicityData, sentimentData)
-  } catch (error) {
-    console.error("API analysis failed, using fallback:", error)
-    return await fallbackAnalysis(cleanText)
+      const apiResult = await analyzeWithHuggingFace(cleanText)
+      if (apiResult) {
+        console.log("✅ Hugging Face API success")
+        return apiResult
+      }
+    } catch (error) {
+      console.error("❌ Hugging Face API failed:", error)
+    }
   }
+
+  console.log("⚠️ Using fallback analysis")
+  return fallbackResult
+}
+
+async function analyzeWithHuggingFace(text: string): Promise<EmotionResult | null> {
+  try {
+    // Используем более простые и надежные модели
+    const requests = [
+      // Анализ тональности
+      fetch("https://api-inference.huggingface.co/models/cardiffnlp/twitter-roberta-base-sentiment-latest", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${process.env.HUGGINGFACE_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ inputs: text }),
+      }),
+
+      // Анализ токсичности
+      fetch("https://api-inference.huggingface.co/models/unitary/toxic-bert", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${process.env.HUGGINGFACE_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ inputs: text }),
+      }),
+    ]
+
+    const responses = await Promise.allSettled(requests)
+
+    let sentimentData = null
+    let toxicityData = null
+
+    // Обрабатываем ответ тональности
+    if (responses[0].status === "fulfilled") {
+      try {
+        const sentimentText = await responses[0].value.text()
+        console.log("📊 Sentiment API response:", sentimentText)
+
+        if (sentimentText && !sentimentText.includes("Not Found") && !sentimentText.includes("error")) {
+          sentimentData = JSON.parse(sentimentText)
+        }
+      } catch (error) {
+        console.error("Failed to parse sentiment response:", error)
+      }
+    }
+
+    // Обрабатываем ответ токсичности
+    if (responses[1].status === "fulfilled") {
+      try {
+        const toxicityText = await responses[1].value.text()
+        console.log("🔍 Toxicity API response:", toxicityText)
+
+        if (toxicityText && !toxicityText.includes("Not Found") && !toxicityText.includes("error")) {
+          toxicityData = JSON.parse(toxicityText)
+        }
+      } catch (error) {
+        console.error("Failed to parse toxicity response:", error)
+      }
+    }
+
+    // Если хотя бы один API сработал, используем результаты
+    if (sentimentData || toxicityData) {
+      return processApiResults(sentimentData, toxicityData, text)
+    }
+
+    return null
+  } catch (error) {
+    console.error("❌ Hugging Face API error:", error)
+    return null
+  }
+}
+
+function processApiResults(sentimentData: any, toxicityData: any, text: string): EmotionResult {
+  let sentiment: "positive" | "negative" | "neutral" = "neutral"
+  let toxicity = 0
+  let confidence = 0.5
+
+  // Обрабатываем тональность
+  if (sentimentData && Array.isArray(sentimentData) && sentimentData.length > 0) {
+    const topSentiment = sentimentData[0]
+    if (topSentiment.label) {
+      if (topSentiment.label.toLowerCase().includes("positive")) {
+        sentiment = "positive"
+      } else if (topSentiment.label.toLowerCase().includes("negative")) {
+        sentiment = "negative"
+      }
+      confidence = Math.max(confidence, topSentiment.score || 0.5)
+    }
+  }
+
+  // Обрабатываем токсичность
+  if (toxicityData && Array.isArray(toxicityData) && toxicityData.length > 0) {
+    const toxicItem = toxicityData.find((item: any) => item.label && item.label.toLowerCase().includes("toxic"))
+    if (toxicItem) {
+      toxicity = toxicItem.score || 0
+    }
+  }
+
+  // Генерируем эмоции на основе тональности
+  const emotions = generateEmotionsFromSentiment(sentiment, text)
+
+  return {
+    ...emotions,
+    toxicity,
+    sentiment,
+    confidence,
+  }
+}
+
+function generateEmotionsFromSentiment(sentiment: string, text: string) {
+  const lowerText = text.toLowerCase()
+
+  // Базовые значения
+  let joy = 0.1
+  let anger = 0.1
+  let sadness = 0.1
+  let fear = 0.1
+  let surprise = 0.1
+  let disgust = 0.1
+  let neutral = 0.5
+
+  // Корректируем на основе тональности
+  if (sentiment === "positive") {
+    joy = 0.6
+    neutral = 0.3
+  } else if (sentiment === "negative") {
+    if (lowerText.includes("злой") || lowerText.includes("бесит") || lowerText.includes("ненавижу")) {
+      anger = 0.5
+    } else if (lowerText.includes("грустно") || lowerText.includes("печально")) {
+      sadness = 0.5
+    } else if (lowerText.includes("боюсь") || lowerText.includes("страшно")) {
+      fear = 0.5
+    } else {
+      anger = 0.3
+      sadness = 0.2
+    }
+    neutral = 0.2
+  }
+
+  // Нормализация
+  const total = joy + anger + sadness + fear + surprise + disgust + neutral
+  if (total > 0) {
+    joy /= total
+    anger /= total
+    sadness /= total
+    fear /= total
+    surprise /= total
+    disgust /= total
+    neutral /= total
+  }
+
+  return { joy, anger, sadness, fear, surprise, disgust, neutral }
 }
 
 function combineEmotionResults(textEmotions: EmotionResult, voiceEmotion?: any): EmotionResult {
@@ -214,6 +352,8 @@ function fixCommonTypos(text: string): string {
 }
 
 async function fallbackAnalysis(text: string): Promise<EmotionResult> {
+  console.log("🔄 Using rule-based fallback analysis")
+
   // Простой rule-based анализ как fallback
   const lowerText = text.toLowerCase()
 
@@ -221,13 +361,16 @@ async function fallbackAnalysis(text: string): Promise<EmotionResult> {
   let joy = 0
   let sadness = 0
   let fear = 0
+  let toxicity = 0
 
   // Ключевые слова для эмоций
-  const angerWords = ["злой", "бесит", "достал", "ненавижу", "дурак", "идиот"]
-  const joyWords = ["отлично", "супер", "класс", "круто", "молодец", "ура"]
-  const sadWords = ["грустно", "печально", "расстроен", "плохо", "ужасно"]
-  const fearWords = ["боюсь", "страшно", "волнуюсь", "переживаю"]
+  const angerWords = ["злой", "бесит", "достал", "ненавижу", "дурак", "идиот", "сволочь", "урод", "тупой"]
+  const joyWords = ["отлично", "супер", "класс", "круто", "молодец", "ура", "здорово", "прекрасно", "замечательно"]
+  const sadWords = ["грустно", "печально", "расстроен", "плохо", "ужасно", "депрессия", "тоска"]
+  const fearWords = ["боюсь", "страшно", "волнуюсь", "переживаю", "тревожно", "паника"]
+  const toxicWords = ["дурак", "идиот", "сволочь", "урод", "тупой", "дебил", "кретин", "мудак"]
 
+  // Подсчет совпадений
   angerWords.forEach((word) => {
     if (lowerText.includes(word)) anger += 0.3
   })
@@ -244,9 +387,32 @@ async function fallbackAnalysis(text: string): Promise<EmotionResult> {
     if (lowerText.includes(word)) fear += 0.3
   })
 
+  toxicWords.forEach((word) => {
+    if (lowerText.includes(word)) toxicity += 0.4
+  })
+
+  // Проверяем восклицательные знаки (могут указывать на эмоциональность)
+  const exclamationCount = (text.match(/!/g) || []).length
+  if (exclamationCount > 0) {
+    anger += exclamationCount * 0.1
+    joy += exclamationCount * 0.1
+  }
+
+  // Проверяем капс (может указывать на крик/гнев)
+  const capsRatio = (text.match(/[A-ZА-Я]/g) || []).length / text.length
+  if (capsRatio > 0.3) {
+    anger += 0.2
+    toxicity += 0.2
+  }
+
   // Нормализация
   const total = anger + joy + sadness + fear
   const neutral = Math.max(0, 1 - total)
+
+  // Определяем тональность
+  let sentiment: "positive" | "negative" | "neutral" = "neutral"
+  if (joy > anger + sadness + fear) sentiment = "positive"
+  else if (anger + sadness + fear > joy) sentiment = "negative"
 
   return {
     joy: Math.min(joy, 1),
@@ -255,54 +421,10 @@ async function fallbackAnalysis(text: string): Promise<EmotionResult> {
     sadness: Math.min(sadness, 1),
     surprise: 0,
     disgust: 0,
-    neutral,
-    toxicity: anger > 0.5 ? 0.7 : 0.2,
-    sentiment: joy > anger + sadness ? "positive" : anger > joy ? "negative" : "neutral",
-    confidence: 0.6,
-  }
-}
-
-function processEmotionResults(emotionData: any, toxicityData: any, sentimentData: any): EmotionResult {
-  const emotions = {
-    joy: 0,
-    anger: 0,
-    fear: 0,
-    sadness: 0,
-    surprise: 0,
-    disgust: 0,
-    neutral: 0,
-  }
-
-  // Обрабатываем результаты эмоций
-  if (Array.isArray(emotionData) && emotionData.length > 0) {
-    emotionData[0].forEach((item: any) => {
-      const label = item.label.toLowerCase()
-      if (label in emotions) {
-        emotions[label as keyof typeof emotions] = item.score
-      }
-    })
-  }
-
-  // Обрабатываем токсичность
-  let toxicity = 0
-  if (Array.isArray(toxicityData) && toxicityData.length > 0) {
-    const toxicItem = toxicityData[0].find((item: any) => item.label === "TOXIC")
-    toxicity = toxicItem ? toxicItem.score : 0
-  }
-
-  // Обрабатываем тональность
-  let sentiment: "positive" | "negative" | "neutral" = "neutral"
-  if (Array.isArray(sentimentData) && sentimentData.length > 0) {
-    const topSentiment = sentimentData[0][0]
-    if (topSentiment.label.includes("POSITIVE")) sentiment = "positive"
-    else if (topSentiment.label.includes("NEGATIVE")) sentiment = "negative"
-  }
-
-  return {
-    ...emotions,
-    toxicity,
+    neutral: Math.max(neutral, 0),
+    toxicity: Math.min(toxicity, 1),
     sentiment,
-    confidence: 0.8,
+    confidence: 0.7, // Средняя уверенность для rule-based анализа
   }
 }
 

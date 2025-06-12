@@ -34,12 +34,26 @@ export function TeamAnalytics() {
 
   const fetchTeamAnalytics = async () => {
     try {
-      const response = await fetch("/api/analytics/team")
+      console.log("👥 Fetching team analytics...")
+      const response = await fetch("/api/analytics?type=team")
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+
       const result = await response.json()
-      setTeamMembers(result.members || generateMockMembers())
-      setTeamStats(result.stats || generateMockStats())
+      console.log("📊 Team analytics received:", result)
+
+      if (result.success) {
+        setTeamMembers(result.members || generateMockMembers())
+        setTeamStats(result.stats || generateMockStats())
+      } else {
+        console.warn("⚠️ No team data, using mock data")
+        setTeamMembers(generateMockMembers())
+        setTeamStats(generateMockStats())
+      }
     } catch (error) {
-      console.error("Failed to fetch team analytics:", error)
+      console.error("❌ Failed to fetch team analytics:", error)
       setTeamMembers(generateMockMembers())
       setTeamStats(generateMockStats())
     } finally {

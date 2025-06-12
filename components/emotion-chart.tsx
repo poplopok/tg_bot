@@ -22,11 +22,24 @@ export function EmotionChart() {
 
   const fetchEmotionData = async () => {
     try {
-      const response = await fetch("/api/analytics/emotions")
+      console.log("📊 Fetching emotion data...")
+      const response = await fetch("/api/analytics?type=emotions&days=7")
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+
       const result = await response.json()
-      setData(result.data || generateMockData())
+      console.log("📈 Emotion data received:", result)
+
+      if (result.success && result.data) {
+        setData(result.data)
+      } else {
+        console.warn("⚠️ No emotion data, using mock data")
+        setData(generateMockData())
+      }
     } catch (error) {
-      console.error("Failed to fetch emotion data:", error)
+      console.error("❌ Failed to fetch emotion data:", error)
       setData(generateMockData())
     } finally {
       setLoading(false)

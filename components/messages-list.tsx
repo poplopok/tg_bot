@@ -33,11 +33,24 @@ export function MessagesList() {
 
   const fetchMessages = async () => {
     try {
+      console.log("📡 Fetching messages from API...")
       const response = await fetch("/api/messages?limit=20")
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+
       const result = await response.json()
-      setMessages(result.messages || generateMockMessages())
+      console.log("📨 Messages received:", result)
+
+      if (result.success && result.messages) {
+        setMessages(result.messages)
+      } else {
+        console.warn("⚠️ No messages in response, using mock data")
+        setMessages(generateMockMessages())
+      }
     } catch (error) {
-      console.error("Failed to fetch messages:", error)
+      console.error("❌ Failed to fetch messages:", error)
       setMessages(generateMockMessages())
     } finally {
       setLoading(false)

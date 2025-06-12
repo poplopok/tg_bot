@@ -28,11 +28,24 @@ export function AlertsList() {
 
   const fetchAlerts = async () => {
     try {
+      console.log("🚨 Fetching alerts...")
       const response = await fetch("/api/alerts")
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+
       const result = await response.json()
-      setAlerts(result.alerts || generateMockAlerts())
+      console.log("⚠️ Alerts received:", result)
+
+      if (result.success && result.alerts) {
+        setAlerts(result.alerts)
+      } else {
+        console.warn("⚠️ No alerts data, using mock data")
+        setAlerts(generateMockAlerts())
+      }
     } catch (error) {
-      console.error("Failed to fetch alerts:", error)
+      console.error("❌ Failed to fetch alerts:", error)
       setAlerts(generateMockAlerts())
     } finally {
       setLoading(false)

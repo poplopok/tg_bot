@@ -1,7 +1,15 @@
 import { createClient } from "@supabase/supabase-js"
 
-const supabaseUrl = process.env.SUPABASE_URL!
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
+const supabaseUrl = process.env.SUPABASE_URL
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+
+if (!supabaseUrl || !supabaseKey) {
+  console.error("❌ Missing Supabase credentials:", {
+    url: !!supabaseUrl,
+    key: !!supabaseKey,
+  })
+  throw new Error("Missing Supabase credentials")
+}
 
 export const supabase = createClient(supabaseUrl, supabaseKey)
 
@@ -28,6 +36,12 @@ export interface MessageData {
 }
 
 export async function saveMessage(data: MessageData) {
+  console.log("💾 Saving message to database:", {
+    chatId: data.chatId,
+    username: data.username,
+    text: data.text.substring(0, 50) + "...",
+  })
+
   try {
     const { error } = await supabase.from("messages").insert({
       chat_id: data.chatId,
@@ -50,11 +64,13 @@ export async function saveMessage(data: MessageData) {
     })
 
     if (error) {
-      console.error("Error saving message:", error)
+      console.error("❌ Database save error:", error)
       throw error
     }
+
+    console.log("✅ Message saved successfully")
   } catch (error) {
-    console.error("Database error:", error)
+    console.error("❌ Database error:", error)
     throw error
   }
 }

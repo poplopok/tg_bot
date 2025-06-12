@@ -5,13 +5,25 @@ import { checkAlerts } from "@/lib/alerts"
 import { transcribeVoice } from "@/lib/voice-processor"
 
 export async function POST(request: NextRequest) {
+  console.log("🔥 Webhook received!")
+
   try {
     const body = await request.json()
+    console.log("📨 Webhook body:", JSON.stringify(body, null, 2))
+
     const message = body.message
 
     if (!message) {
+      console.log("⚠️ No message in webhook")
       return NextResponse.json({ ok: true })
     }
+
+    console.log("✅ Processing message:", {
+      chatId: message.chat.id,
+      userId: message.from.id,
+      username: message.from.username,
+      text: message.text || "[non-text message]",
+    })
 
     const chatId = message.chat.id
     const userId = message.from.id
@@ -124,7 +136,8 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ ok: true })
   } catch (error) {
-    console.error("Webhook error:", error)
+    console.error("❌ Webhook error:", error)
+    console.error("Error stack:", error.stack)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }

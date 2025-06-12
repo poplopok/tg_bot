@@ -1,296 +1,287 @@
 "use client"
 
 import { useState } from "react"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
-import { Alert, AlertDescription } from "@/components/ui/alert"
-import { ArrowLeft, Bot, CheckCircle, AlertCircle, Copy, ExternalLink } from "lucide-react"
-import Link from "next/link"
+import { CheckCircle, Copy, ExternalLink, Settings } from "lucide-react"
 
 export default function SetupPage() {
-  const [webhookStatus, setWebhookStatus] = useState<"idle" | "loading" | "success" | "error">("idle")
-  const [webhookMessage, setWebhookMessage] = useState("")
+  const [botToken, setBotToken] = useState("")
+  const [webhookUrl, setWebhookUrl] = useState("")
+  const [isConfigured, setIsConfigured] = useState(false)
+  const [loading, setLoading] = useState(false)
 
   const setupWebhook = async () => {
-    setWebhookStatus("loading")
+    if (!botToken) {
+      alert("Введите токен бота")
+      return
+    }
+
+    setLoading(true)
     try {
-      const response = await fetch("/api/set-webhook", {
+      const webhookEndpoint = `${window.location.origin}/api/telegram/webhook`
+
+      const response = await fetch(`https://api.telegram.org/bot${botToken}/setWebhook`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          url: webhookEndpoint,
+          allowed_updates: ["message", "edited_message"],
+        }),
       })
 
-      const data = await response.json()
+      const result = await response.json()
 
-      if (data.success) {
-        setWebhookStatus("success")
-        setWebhookMessage(`Webhook установлен: ${data.webhook_url}`)
+      if (result.ok) {
+        setWebhookUrl(webhookEndpoint)
+        setIsConfigured(true)
+        alert("Webhook успешно настроен!")
       } else {
-        setWebhookStatus("error")
-        setWebhookMessage(data.error || "Ошибка установки webhook")
+        alert(`Ошибка настройки webhook: ${result.description}`)
       }
     } catch (error) {
-      setWebhookStatus("error")
-      setWebhookMessage("Ошибка сети при установке webhook")
+      alert("Ошибка подключения к Telegram API")
+      console.error(error)
+    } finally {
+      setLoading(false)
     }
   }
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text)
+    alert("Скопировано в буфер обмена!")
   }
 
-  const envVariables = [
-    {
-      name: "TELEGRAM_BOT_TOKEN",
-      description: "Токен Telegram бота от @BotFather",
-      example: "1234567890:ABCdefGHIjklMNOpqrsTUVwxyz",
-      required: true,
-    },
-    {
-      name: "OPENAI_API_KEY",
-      description: "API ключ OpenAI для анализа эмоций",
-      example: "sk-...",
-      required: true,
-    },
-    {
-      name: "NEXT_PUBLIC_SUPABASE_URL",
-      description: "URL вашего Supabase проекта",
-      example: "https://your-project.supabase.co",
-      required: true,
-    },
-    {
-      name: "NEXT_PUBLIC_SUPABASE_ANON_KEY",
-      description: "Публичный ключ Supabase",
-      example: "eyJ...",
-      required: true,
-    },
-    {
-      name: "SUPABASE_SERVICE_ROLE_KEY",
-      description: "Сервисный ключ Supabase (секретный)",
-      example: "eyJ...",
-      required: true,
-    },
-  ]
-
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
-      <div className="container mx-auto px-4 py-8">
-        {/* Header */}
-        <div className="flex items-center gap-4 mb-8">
-          <Link href="/">
-            <Button variant="ghost" size="sm">
-              <ArrowLeft className="h-4 w-4 mr-2" />
-              Назад
-            </Button>
-          </Link>
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900">Настройка бота</h1>
-            <p className="text-gray-600">Пошаговая инструкция по развертыванию</p>
-          </div>
-        </div>
+    <div className="container mx-auto px-4 py-8 max-w-4xl">
+      <div className="mb-8">
+        <h1 className="text-3xl font-bold mb-2">Настройка Telegram бота</h1>
+        <p className="text-gray-600">Пошаговая инструкция по настройке бота для анализа эмоций</p>
+      </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {/* Environment Variables */}
-          <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-lg">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Bot className="h-5 w-5" />
-                Переменные окружения
-              </CardTitle>
-              <CardDescription>Настройте эти переменные в Vercel Dashboard</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {envVariables.map((env, index) => (
-                <div key={index} className="p-4 rounded-lg border bg-gray-50/50">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <Label className="font-mono text-sm">{env.name}</Label>
-                      {env.required && (
-                        <Badge variant="destructive" className="text-xs">
-                          Обязательно
-                        </Badge>
-                      )}
-                    </div>
-                    <Button variant="ghost" size="sm" onClick={() => copyToClipboard(env.name)}>
-                      <Copy className="h-4 w-4" />
-                    </Button>
-                  </div>
-                  <p className="text-sm text-gray-600 mb-2">{env.description}</p>
-                  <code className="text-xs bg-white p-2 rounded border block break-all">{env.example}</code>
-                </div>
-              ))}
-
-              <Alert>
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>Добавьте эти переменные в настройках проекта Vercel перед деплоем</AlertDescription>
-              </Alert>
-            </CardContent>
-          </Card>
-
-          {/* Setup Steps */}
-          <div className="space-y-6">
-            {/* Step 1: Create Bot */}
-            <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-lg">
-              <CardHeader>
-                <CardTitle className="text-lg">1. Создание Telegram бота</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <ol className="list-decimal list-inside space-y-2 text-sm">
-                  <li>Откройте @BotFather в Telegram</li>
-                  <li>
-                    Отправьте команду <code className="bg-gray-100 px-1 rounded">/newbot</code>
-                  </li>
-                  <li>Введите имя бота (например: "Emotion Analyzer")</li>
-                  <li>Введите username бота (должен заканчиваться на "bot")</li>
-                  <li>Скопируйте полученный токен</li>
-                </ol>
-                <Button asChild variant="outline" className="w-full">
-                  <a href="https://t.me/BotFather" target="_blank" rel="noopener noreferrer">
-                    <ExternalLink className="h-4 w-4 mr-2" />
-                    Открыть @BotFather
-                  </a>
-                </Button>
-              </CardContent>
-            </Card>
-
-            {/* Step 2: Supabase Setup */}
-            <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-lg">
-              <CardHeader>
-                <CardTitle className="text-lg">2. Настройка Supabase</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <ol className="list-decimal list-inside space-y-2 text-sm">
-                  <li>
-                    Создайте проект на{" "}
-                    <a href="https://supabase.com" className="text-blue-600 hover:underline">
-                      supabase.com
-                    </a>
-                  </li>
-                  <li>Выполните SQL скрипты из папки scripts/</li>
-                  <li>Скопируйте URL проекта и API ключи</li>
-                  <li>Настройте Row Level Security</li>
-                </ol>
-                <Button asChild variant="outline" className="w-full">
-                  <a href="https://supabase.com/dashboard" target="_blank" rel="noopener noreferrer">
-                    <ExternalLink className="h-4 w-4 mr-2" />
-                    Supabase Dashboard
-                  </a>
-                </Button>
-              </CardContent>
-            </Card>
-
-            {/* Step 3: Deploy */}
-            <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-lg">
-              <CardHeader>
-                <CardTitle className="text-lg">3. Деплой на Vercel</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <ol className="list-decimal list-inside space-y-2 text-sm">
-                  <li>Подключите GitHub репозиторий к Vercel</li>
-                  <li>Добавьте переменные окружения</li>
-                  <li>Выполните деплой</li>
-                  <li>Установите webhook (кнопка ниже)</li>
-                </ol>
-                <Button asChild variant="outline" className="w-full">
-                  <a href="https://vercel.com/new" target="_blank" rel="noopener noreferrer">
-                    <ExternalLink className="h-4 w-4 mr-2" />
-                    Deploy to Vercel
-                  </a>
-                </Button>
-              </CardContent>
-            </Card>
-
-            {/* Webhook Setup */}
-            <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-lg">
-              <CardHeader>
-                <CardTitle className="text-lg">4. Установка Webhook</CardTitle>
-                <CardDescription>После деплоя установите webhook для получения сообщений</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <Button onClick={setupWebhook} disabled={webhookStatus === "loading"} className="w-full">
-                  {webhookStatus === "loading" ? "Установка..." : "Установить Webhook"}
-                </Button>
-
-                {webhookStatus === "success" && (
-                  <Alert className="border-green-200 bg-green-50">
-                    <CheckCircle className="h-4 w-4 text-green-600" />
-                    <AlertDescription className="text-green-800">{webhookMessage}</AlertDescription>
-                  </Alert>
-                )}
-
-                {webhookStatus === "error" && (
-                  <Alert className="border-red-200 bg-red-50">
-                    <AlertCircle className="h-4 w-4 text-red-600" />
-                    <AlertDescription className="text-red-800">{webhookMessage}</AlertDescription>
-                  </Alert>
-                )}
-              </CardContent>
-            </Card>
-          </div>
-        </div>
-
-        {/* SQL Scripts */}
-        <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-lg mt-8">
+      <div className="grid gap-6">
+        {/* Шаг 1: Создание бота */}
+        <Card>
           <CardHeader>
-            <CardTitle>SQL скрипты для Supabase</CardTitle>
-            <CardDescription>Выполните эти скрипты в SQL Editor вашего Supabase проекта</CardDescription>
+            <CardTitle className="flex items-center">
+              <span className="bg-blue-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm mr-3">
+                1
+              </span>
+              Создание Telegram бота
+            </CardTitle>
+            <CardDescription>Получите токен бота от BotFather</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <h4 className="font-medium mb-2">1. Создание таблиц</h4>
-                <pre className="bg-gray-100 p-3 rounded text-xs overflow-x-auto">
-                  {`-- Таблица пользователей
-CREATE TABLE users (
-  id SERIAL PRIMARY KEY,
-  telegram_id BIGINT UNIQUE NOT NULL,
-  username VARCHAR(255),
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW()
-);
+            <div className="bg-gray-50 p-4 rounded-lg">
+              <h4 className="font-medium mb-2">Инструкция:</h4>
+              <ol className="list-decimal list-inside space-y-1 text-sm text-gray-700">
+                <li>Откройте Telegram и найдите @BotFather</li>
+                <li>Отправьте команду /newbot</li>
+                <li>Введите имя для вашего бота</li>
+                <li>Введите username (должен заканчиваться на "bot")</li>
+                <li>Скопируйте полученный токен</li>
+              </ol>
+            </div>
 
--- Таблица сообщений
-CREATE TABLE messages (
-  id SERIAL PRIMARY KEY,
-  chat_id BIGINT NOT NULL,
-  user_id BIGINT NOT NULL,
-  username VARCHAR(255),
-  message_text TEXT NOT NULL,
-  created_at TIMESTAMP DEFAULT NOW()
-);
+            <div className="flex items-center space-x-2">
+              <Button variant="outline" size="sm" asChild>
+                <a href="https://t.me/BotFather" target="_blank" rel="noopener noreferrer">
+                  <ExternalLink className="h-4 w-4 mr-2" />
+                  Открыть BotFather
+                </a>
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
 
--- Таблица анализа эмоций
-CREATE TABLE emotion_analysis (
-  id SERIAL PRIMARY KEY,
-  message_id INTEGER REFERENCES messages(id),
-  primary_emotion VARCHAR(50),
-  confidence DECIMAL(3,2),
-  toxicity DECIMAL(3,2),
-  sentiment VARCHAR(20),
-  explanation TEXT,
-  analyzed_at TIMESTAMP DEFAULT NOW()
-);`}
-                </pre>
+        {/* Шаг 2: Настройка токена */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center">
+              <span className="bg-blue-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm mr-3">
+                2
+              </span>
+              Настройка токена
+            </CardTitle>
+            <CardDescription>Введите токен бота для настройки webhook</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div>
+              <Label htmlFor="bot-token">Токен бота</Label>
+              <div className="flex space-x-2">
+                <Input
+                  id="bot-token"
+                  type="password"
+                  placeholder="1234567890:ABCdefGHIjklMNOpqrsTUVwxyz"
+                  value={botToken}
+                  onChange={(e) => setBotToken(e.target.value)}
+                />
+                <Button onClick={setupWebhook} disabled={loading || !botToken}>
+                  {loading ? "Настройка..." : "Настроить"}
+                </Button>
               </div>
-              <div>
-                <h4 className="font-medium mb-2">2. Настройка RLS</h4>
-                <pre className="bg-gray-100 p-3 rounded text-xs overflow-x-auto">
-                  {`-- Включение Row Level Security
-ALTER TABLE users ENABLE ROW LEVEL SECURITY;
-ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
-ALTER TABLE emotion_analysis ENABLE ROW LEVEL SECURITY;
+            </div>
 
--- Политики доступа (разрешить все для сервисного ключа)
-CREATE POLICY "Allow all for service role" ON users
-  FOR ALL USING (auth.role() = 'service_role');
-
-CREATE POLICY "Allow all for service role" ON messages
-  FOR ALL USING (auth.role() = 'service_role');
-
-CREATE POLICY "Allow all for service role" ON emotion_analysis
-  FOR ALL USING (auth.role() = 'service_role');`}
-                </pre>
+            {isConfigured && (
+              <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                <div className="flex items-center">
+                  <CheckCircle className="h-5 w-5 text-green-500 mr-2" />
+                  <span className="text-green-800 font-medium">Webhook успешно настроен!</span>
+                </div>
+                <div className="mt-2 text-sm text-green-700">
+                  URL: {webhookUrl}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => copyToClipboard(webhookUrl)}
+                    className="ml-2 h-6 px-2"
+                  >
+                    <Copy className="h-3 w-3" />
+                  </Button>
+                </div>
               </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Шаг 3: Переменные окружения */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center">
+              <span className="bg-blue-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm mr-3">
+                3
+              </span>
+              Переменные окружения
+            </CardTitle>
+            <CardDescription>Настройте переменные окружения в Vercel</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="bg-gray-50 p-4 rounded-lg">
+              <h4 className="font-medium mb-3">Добавьте следующие переменные в Vercel:</h4>
+              <div className="space-y-2 font-mono text-sm">
+                <div className="flex justify-between items-center">
+                  <span>TELEGRAM_BOT_TOKEN</span>
+                  <Button variant="ghost" size="sm" onClick={() => copyToClipboard("TELEGRAM_BOT_TOKEN")}>
+                    <Copy className="h-3 w-3" />
+                  </Button>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span>HUGGINGFACE_API_KEY</span>
+                  <Button variant="ghost" size="sm" onClick={() => copyToClipboard("HUGGINGFACE_API_KEY")}>
+                    <Copy className="h-3 w-3" />
+                  </Button>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span>SUPABASE_URL</span>
+                  <Button variant="ghost" size="sm" onClick={() => copyToClipboard("SUPABASE_URL")}>
+                    <Copy className="h-3 w-3" />
+                  </Button>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span>SUPABASE_SERVICE_ROLE_KEY</span>
+                  <Button variant="ghost" size="sm" onClick={() => copyToClipboard("SUPABASE_SERVICE_ROLE_KEY")}>
+                    <Copy className="h-3 w-3" />
+                  </Button>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex space-x-2">
+              <Button variant="outline" size="sm" asChild>
+                <a href="https://huggingface.co/settings/tokens" target="_blank" rel="noopener noreferrer">
+                  <ExternalLink className="h-4 w-4 mr-2" />
+                  Получить Hugging Face API Key
+                </a>
+              </Button>
+              <Button variant="outline" size="sm" asChild>
+                <a href="https://supabase.com/dashboard" target="_blank" rel="noopener noreferrer">
+                  <ExternalLink className="h-4 w-4 mr-2" />
+                  Настроить Supabase
+                </a>
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Шаг 4: Добавление в чат */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center">
+              <span className="bg-blue-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm mr-3">
+                4
+              </span>
+              Добавление бота в чат
+            </CardTitle>
+            <CardDescription>Добавьте бота в корпоративный чат</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="bg-gray-50 p-4 rounded-lg">
+              <h4 className="font-medium mb-2">Инструкция:</h4>
+              <ol className="list-decimal list-inside space-y-1 text-sm text-gray-700">
+                <li>Откройте корпоративный чат в Telegram</li>
+                <li>Нажмите на название чата → "Управление группой"</li>
+                <li>Выберите "Добавить участника"</li>
+                <li>Найдите вашего бота по username</li>
+                <li>Добавьте бота и дайте права администратора</li>
+              </ol>
+            </div>
+
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <h4 className="font-medium text-blue-800 mb-2">Важно:</h4>
+              <p className="text-sm text-blue-700">
+                Бот должен иметь права администратора для чтения всех сообщений в группе. Без этих прав анализ эмоций
+                работать не будет.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Шаг 5: Тестирование */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center">
+              <span className="bg-green-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm mr-3">
+                5
+              </span>
+              Тестирование
+            </CardTitle>
+            <CardDescription>Проверьте работу бота</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="bg-gray-50 p-4 rounded-lg">
+              <h4 className="font-medium mb-2">Тестовые сообщения:</h4>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between bg-white p-2 rounded border">
+                  <span className="text-sm">"Отличная работа команды! 🚀"</span>
+                  <Badge variant="secondary" className="bg-green-100 text-green-800">
+                    Позитив
+                  </Badge>
+                </div>
+                <div className="flex items-center justify-between bg-white p-2 rounded border">
+                  <span className="text-sm">"Этот проект полная ерунда"</span>
+                  <Badge variant="secondary" className="bg-red-100 text-red-800">
+                    Токсичность
+                  </Badge>
+                </div>
+                <div className="flex items-center justify-between bg-white p-2 rounded border">
+                  <span className="text-sm">"Нужно исправить баг"</span>
+                  <Badge variant="secondary" className="bg-gray-100 text-gray-800">
+                    Нейтрально
+                  </Badge>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex space-x-2">
+              <Button asChild>
+                <a href="/dashboard">
+                  <Settings className="h-4 w-4 mr-2" />
+                  Перейти к дашборду
+                </a>
+              </Button>
             </div>
           </CardContent>
         </Card>

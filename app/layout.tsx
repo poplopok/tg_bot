@@ -2,12 +2,13 @@ import type React from "react"
 import type { Metadata } from "next"
 import { Inter } from "next/font/google"
 import "./globals.css"
+import { Navigation } from "@/components/navigation"
 
 const inter = Inter({ subsets: ["latin"] })
 
 export const metadata: Metadata = {
-  title: "EmotionBot - Telegram бот для анализа эмоций",
-  description: "AI-powered Telegram бот для анализа эмоций и токсичности в сообщениях",
+  title: "Telegram Emotion Bot - Анализ эмоций в корпоративных чатах",
+  description: "ИИ-система для анализа эмоций и предотвращения конфликтов в корпоративных Telegram чатах",
     generator: 'v0.dev'
 }
 
@@ -18,7 +19,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="ru">
-      <body className={inter.className}>{children}</body>
+      <body className={inter.className}>
+        <Navigation />
+        <main>{children}</main>
+      </body>
     </html>
   )
 }

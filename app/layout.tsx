@@ -6,9 +6,8 @@ import "./globals.css"
 const inter = Inter({ subsets: ["latin"] })
 
 export const metadata: Metadata = {
-  title: "EmoBot Analytics - Анализ эмоций в корпоративных чатах",
-  description:
-    "Система анализа эмоций и модерации корпоративных чатов для предотвращения конфликтов и повышения продуктивности",
+  title: "EmotionBot - Telegram бот для анализа эмоций",
+  description: "AI-powered Telegram бот для анализа эмоций и токсичности в сообщениях",
     generator: 'v0.dev'
 }
 

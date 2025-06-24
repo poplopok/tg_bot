@@ -1,720 +1,212 @@
 import { Bot, webhookCallback } from "grammy"
-import { updateGlobalStats } from "../admin/stats/route"
-import { advancedNLPAnalysis } from "@/lib/nlp-models"
+import { createClient } from "@supabase/supabase-js"
 
-// Создаем экземпляр бота
-const bot = new Bot(process.env.BOT_TOKEN || "")
+const bot = new Bot("7970844280:AAGNyTlzselT8E6XunCSqnxtvYWePd76JFk")
 
-// Интерфейсы для типизации
-interface EmotionAnalysis {
-  emotion: string
-  confidence: number
-  severity: "low" | "medium" | "high" | "critical"
-  categories: {
-    aggression: number
-    stress: number
-    sarcasm: number
-    toxicity: number
-    positivity: number
-  }
-  modelUsed: string[]
-  originalMessage?: string
-  correctedText?: string
-  normalizedText?: string
-  slangDetected?: string[]
-  errorsFixed?: string[]
-  detectedLanguage?: string
-}
+// ВАЖНО: Замените на ваш реальный SERVICE_ROLE ключ из Supabase Dashboard
+const supabase = createClient(
+  "https://ikaufpurzmxnalsaffwa.supabase.co",
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlrYXVmcHVyem14bmFsc2FmZndhIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0ODQ0NTYyNCwiZXhwIjoyMDY0MDIxNjI0fQ.ЗАМЕНИТЕ_НА_РЕАЛЬНЫЙ_SERVICE_ROLE_КЛЮЧ",
+)
 
-interface UserRisk {
-  userId: number
-  username?: string
-  riskLevel: "low" | "medium" | "high"
-  incidents: number
-  lastIncident?: Date
-}
-
-// Хранилище данных для отдельных чатов
-const chatStats = new Map<
-  number,
-  {
-    totalMessages: number
-    emotionStats: Record<string, number>
-    userRisks: Map<number, UserRisk>
-    incidents: Array<{
-      id: string
-      userId: number
-      message: string
-      emotion: string
-      severity: string
-      timestamp: Date
-    }>
-  }
->()
-
-// Настройки модерации
-const MODERATION_SETTINGS = {
-  thresholds: {
-    aggression: 75,
-    stress: 80,
-    sarcasm: 70,
-    toxicity: 85,
-  },
-  autoBlock: true,
-  notifyHR: true,
-  hrChatId: process.env.HR_CHAT_ID ? Number.parseInt(process.env.HR_CHAT_ID) : null,
-}
-
-// Главная функция анализа эмоций с продвинутым NLP
-async function analyzeEmotion(text: string): Promise<EmotionAnalysis> {
-  const modelPreference = process.env.EMOTION_MODEL || "advanced"
-
-  console.log(`[АНАЛИЗ] Текст: "${text.substring(0, 50)}..." | Модель: ${modelPreference}`)
-
-  if (modelPreference === "advanced") {
-    try {
-      // Используем продвинутый NLP анализ
-      const nlpResult = await advancedNLPAnalysis(text)
-
-      // Определяем серьезность на основе результатов
-      let severity: EmotionAnalysis["severity"] = "low"
-      const toxicity = nlpResult.sentiment.categories.toxicity
-      const aggression = nlpResult.sentiment.categories.aggression
-
-      if (toxicity > 85 || aggression > 80) severity = "critical"
-      else if (toxicity > 65 || nlpResult.sentiment.confidence > 60) severity = "high"
-      else if (nlpResult.sentiment.confidence > 35) severity = "medium"
-
-      return {
-        emotion: nlpResult.sentiment.emotion,
-        confidence: nlpResult.sentiment.confidence,
-        severity,
-        categories: nlpResult.sentiment.categories,
-        modelUsed: nlpResult.modelUsed,
-        originalMessage: text,
-        correctedText: nlpResult.correctedText,
-        normalizedText: nlpResult.normalizedText,
-        slangDetected: nlpResult.slangDetected,
-        errorsFixed: nlpResult.errorsFixed,
-        detectedLanguage: nlpResult.detectedLanguage,
-      }
-    } catch (error) {
-      console.error("Ошибка продвинутого анализа:", error)
-      // Fallback на простой анализ
-      return await analyzeEmotionLocal(text)
-    }
-  } else {
-    // Используем простой анализ
-    return await analyzeEmotionLocal(text)
-  }
-}
-
-// Локальный анализ как fallback
-async function analyzeEmotionLocal(text: string): Promise<EmotionAnalysis> {
+// Простой анализ эмоций без внешних API
+function analyzeEmotionLocal(text: string) {
   const lowerText = text.toLowerCase()
 
-  // Расширенные словари
-  const aggressionWords = [
-    "дурак",
-    "идиот",
-    "тупой",
-    "бред",
-    "ерунда",
-    "херня",
-    "фигня",
-    "говно",
-    "дерьмо",
-    "мудак",
-    "козел",
-    "урод",
-    "кретин",
-    "дебил",
-    "заткнись",
-    "отвали",
-    "пошел",
-    "достал",
-    "надоел",
-    "бесит",
-    "задолбал",
-    "заколебал",
-    "замучил",
-  ]
+  const emotionKeywords = {
+    радость: ["отлично", "супер", "здорово", "классно", "прекрасно", "😊", "😄", "👍", "🎉", "ура", "браво"],
+    грусть: ["грустно", "печально", "плохо", "расстроен", "😢", "😔", "💔", "печаль"],
+    гнев: ["бесит", "злость", "ярость", "достало", "идиот", "дурак", "😡", "🤬", "ненавижу"],
+    страх: ["боюсь", "страшно", "паника", "ужас", "😰", "😨", "тревога"],
+    нейтрально: ["нормально", "хорошо", "понятно", "ясно", "окей", "ладно"],
+  }
 
-  const stressWords = [
-    "срочно",
-    "быстрее",
-    "опять",
-    "не успеваем",
-    "горит",
-    "пожар",
-    "аврал",
-    "завал",
-    "дедлайн",
-    "вчера нужно было",
-    "когда это закончится",
-    "не работает",
-    "сломалось",
-    "глючит",
-    "падает",
-    "крашится",
-    "виснет",
-    "лагает",
-  ]
+  const toxicWords = ["идиот", "дурак", "тупой", "кретин", "говно", "херня", "бесит", "достало"]
 
-  const positiveWords = [
-    "спасибо",
-    "отлично",
-    "хорошо",
-    "молодец",
-    "супер",
-    "рад",
-    "классно",
-    "круто",
-    "замечательно",
-    "прекрасно",
-    "великолепно",
-    "чудесно",
-    "благодарю",
-    "ценю",
-    "уважаю",
-    "поддержу",
-    "согласен",
-    "правильно",
-    "точно",
-    "здорово",
-  ]
+  let maxScore = 0
+  let primaryEmotion = "нейтрально"
 
-  const sarcasmWords = [
-    "конечно",
-    "естественно",
-    "разумеется",
-    "само собой",
-    "ага",
-    "ну да",
-    "отлично",
-    "прекрасно",
-    "замечательно",
-    "великолепно",
-    "чудесно",
-    "супер",
-  ]
-
-  let aggression = 0
-  let stress = 0
-  let positivity = 0
-  let sarcasm = 0
-
-  // Анализ слов
-  aggressionWords.forEach((word) => {
-    if (lowerText.includes(word)) aggression += 30
-  })
-
-  stressWords.forEach((word) => {
-    if (lowerText.includes(word)) stress += 25
-  })
-
-  positiveWords.forEach((word) => {
-    if (lowerText.includes(word)) positivity += 25
-  })
-
-  sarcasmWords.forEach((word) => {
-    if (lowerText.includes(word)) {
-      // Проверяем контекст для сарказма
-      const hasNegativeContext =
-        text.includes("🤡") ||
-        text.includes("👏") ||
-        text.includes("🙄") ||
-        text.includes("...") ||
-        /конечно.*👏/.test(text) ||
-        /отлично.*🤡/.test(text)
-
-      if (hasNegativeContext) {
-        sarcasm += 40
-      } else {
-        positivity += 15
+  // Анализ эмоций
+  for (const [emotion, keywords] of Object.entries(emotionKeywords)) {
+    let score = 0
+    for (const keyword of keywords) {
+      if (lowerText.includes(keyword)) {
+        score += 0.4
       }
     }
-  })
-
-  // Анализ пунктуации и эмодзи
-  const exclamationCount = (text.match(/!/g) || []).length
-  if (exclamationCount > 2) stress += exclamationCount * 15
-
-  const upperCaseRatio = (text.match(/[А-ЯA-Z]/g) || []).length / text.length
-  if (upperCaseRatio > 0.5) aggression += 20
-
-  // Негативные эмодзи
-  const negativeEmojis = ["😡", "🤬", "😤", "💢", "👿", "😠", "🙄", "🤡", "💩", "🖕"]
-  negativeEmojis.forEach((emoji) => {
-    if (text.includes(emoji)) {
-      if (emoji === "🤡" || emoji === "🙄") {
-        sarcasm += 35
-      } else {
-        aggression += 25
-      }
+    if (score > maxScore) {
+      maxScore = score
+      primaryEmotion = emotion
     }
-  })
+  }
 
-  // Стрессовые эмодзи
-  const stressEmojis = ["😰", "😱", "🤯", "😵", "🔥", "⚡", "💥", "🚨"]
-  stressEmojis.forEach((emoji) => {
-    if (text.includes(emoji)) {
-      stress += 20
+  // Анализ токсичности
+  let toxicity = 0
+  for (const toxicWord of toxicWords) {
+    if (lowerText.includes(toxicWord)) {
+      toxicity += 0.3
     }
-  })
+  }
 
-  // Позитивные эмодзи
-  const positiveEmojis = ["😊", "😄", "👍", "✅", "🎉", "💪", "❤️", "👏"]
-  positiveEmojis.forEach((emoji) => {
-    if (text.includes(emoji)) {
-      positivity += 20
-    }
-  })
+  // Дополнительные проверки
+  if (text.match(/[А-ЯЁ]{3,}/)) toxicity += 0.1 // Много заглавных букв
+  if (text.match(/!{3,}/)) toxicity += 0.1 // Много восклицательных знаков
 
-  const toxicity = Math.min(100, aggression * 0.8 + stress * 0.4)
-  const maxScore = Math.max(aggression, stress, positivity, sarcasm)
+  toxicity = Math.min(toxicity, 1)
 
-  let dominantEmotion = "neutral"
-  if (aggression === maxScore && aggression > 20) dominantEmotion = "aggression"
-  else if (stress === maxScore && stress > 20) dominantEmotion = "stress"
-  else if (sarcasm === maxScore && sarcasm > 20) dominantEmotion = "sarcasm"
-  else if (positivity === maxScore && positivity > 20) dominantEmotion = "positivity"
-
-  let severity: EmotionAnalysis["severity"] = "low"
-  if (toxicity > 85) severity = "critical"
-  else if (toxicity > 65) severity = "high"
-  else if (maxScore > 35) severity = "medium"
+  const sentiment =
+    primaryEmotion === "радость"
+      ? "positive"
+      : primaryEmotion === "грусть" || primaryEmotion === "гнев"
+        ? "negative"
+        : "neutral"
 
   return {
-    emotion: dominantEmotion,
-    confidence: maxScore,
-    severity,
-    categories: {
-      aggression,
-      stress,
-      sarcasm,
-      toxicity,
-      positivity,
-    },
-    modelUsed: ["local-enhanced"],
-    originalMessage: text,
+    primary_emotion: primaryEmotion,
+    confidence: Math.max(maxScore, 0.6),
+    toxicity: toxicity,
+    sentiment: sentiment,
+    explanation: "Локальный анализ по ключевым словам",
   }
 }
 
-// Функция для отправки уведомления HR
-async function notifyHR(chatId: number, incident: any) {
-  if (!MODERATION_SETTINGS.hrChatId) return
-
-  const message = `🚨 *Инцидент в корпоративном чате*
-
-📍 *Чат:* ${chatId}
-👤 *Пользователь:* @${incident.username || "неизвестен"}
-⚠️ *Тип:* ${incident.emotion}
-📊 *Серьезность:* ${incident.severity}
-🤖 *Модели:* ${incident.modelUsed?.join(", ") || "local"}
-
-📝 *Оригинальное сообщение:*
-"${incident.originalMessage || incident.message}"
-
-${
-  incident.correctedText && incident.correctedText !== incident.originalMessage
-    ? `📝 *Исправленный текст:*
-"${incident.correctedText}"`
-    : ""
-}
-
-${
-  incident.normalizedText && incident.normalizedText !== incident.correctedText
-    ? `📝 *Нормализованный текст:*
-"${incident.normalizedText}"`
-    : ""
-}
-
-${
-  incident.slangDetected && incident.slangDetected.length > 0
-    ? `🗣️ *Обнаруженный сленг:*
-${incident.slangDetected.join(", ")}`
-    : ""
-}
-
-${
-  incident.errorsFixed && incident.errorsFixed.length > 0
-    ? `✏️ *Исправленные ошибки:*
-${incident.errorsFixed.join(", ")}`
-    : ""
-}
-
-*Детальный анализ эмоций:*
-• Агрессия: ${incident.categories?.aggression || 0}%
-• Стресс: ${incident.categories?.stress || 0}%
-• Сарказм: ${incident.categories?.sarcasm || 0}%
-• Токсичность: ${incident.categories?.toxicity || 0}%
-• Позитив: ${incident.categories?.positivity || 0}%
-
-🌐 *Язык:* ${incident.detectedLanguage || "ru"}
-
-🕐 *Время:* ${new Date().toLocaleString("ru-RU")}
-
-#инцидент #модерация #nlp #${incident.modelUsed?.join("_") || "local"}`
-
+// Сохранение в Supabase (опционально)
+async function saveToSupabase(chatId: number, userId: number, username: string, text: string, analysis: any) {
   try {
-    await bot.api.sendMessage(MODERATION_SETTINGS.hrChatId, message, {
-      parse_mode: "Markdown",
-    })
-  } catch (error) {
-    console.error("Ошибка отправки уведомления HR:", error)
-  }
-}
+    // Сохраняем сообщение
+    const { data: messageData, error: messageError } = await supabase
+      .from("messages")
+      .insert({
+        chat_id: chatId,
+        user_id: userId,
+        username: username,
+        message_text: text,
+        created_at: new Date().toISOString(),
+      })
+      .select()
+      .single()
 
-// Команды бота
-bot.command("start", async (ctx) => {
-  const modelInfo = process.env.EMOTION_MODEL || "advanced"
-  const welcomeMessage = `🤖 *EmoBot - Продвинутый анализатор эмоций*
-
-Привет! Я бот для анализа эмоций с продвинутыми возможностями NLP.
-
-*Мои возможности:*
-• 🧠 Продвинутый анализ через ${modelInfo === "advanced" ? "множественные AI модели" : "локальные алгоритмы"}
-• ✏️ Исправление опечаток и ошибок
-• 🗣️ Распознавание сленга и жаргона
-• 🌐 Определение языка сообщений
-• ⚠️ Обнаружение конфликтов и стресса
-• 🛡️ Модерация токсичного контента
-• 📈 Детальная статистика и аналитика
-
-*Команды для администраторов:*
-/stats - Статистика чата
-/nlp_stats - Статистика NLP анализа
-/settings - Настройки модерации
-/report - Отчет по команде
-/model - Информация о моделях
-/help - Помощь
-
-Добавьте меня в групповой чат и дайте права администратора для начала работы!`
-
-  await ctx.reply(welcomeMessage, { parse_mode: "Markdown" })
-})
-
-// Команда для статистики NLP
-bot.command("nlp_stats", async (ctx) => {
-  try {
-    const { getNLPStats } = await import("@/lib/nlp-models")
-    const stats = await getNLPStats()
-
-    if (!stats) {
-      await ctx.reply("📊 Статистика NLP пока не собрана.")
-      return
+    if (messageError) {
+      console.log("⚠️ Ошибка сохранения в Supabase (продолжаем работу):", messageError.message)
+      return null
     }
 
-    const statsMessage = `📊 *Статистика NLP анализа*
+    // Сохраняем анализ
+    await supabase.from("emotion_analysis").insert({
+      message_id: messageData.id,
+      primary_emotion: analysis.primary_emotion,
+      confidence: analysis.confidence,
+      toxicity: analysis.toxicity,
+      sentiment: analysis.sentiment,
+      explanation: analysis.explanation,
+    })
 
-📝 *Всего анализов:* ${stats.totalAnalyses}
-🎯 *Средняя точность:* ${stats.averageConfidence.toFixed(1)}%
-
-*Распределение языков:*
-${Object.entries(stats.languageDistribution)
-  .map(([lang, count]) => `🌐 ${lang}: ${count}`)
-  .join("\n")}
-
-*Топ сленга:*
-${Object.entries(stats.slangUsage)
-  .sort(([, a], [, b]) => (b as number) - (a as number))
-  .slice(0, 5)
-  .map(([slang, count]) => `🗣️ ${slang}: ${count}`)
-  .join("\n")}
-
-*Частые ошибки:*
-${Object.entries(stats.errorTypes)
-  .sort(([, a], [, b]) => (b as number) - (a as number))
-  .slice(0, 5)
-  .map(([error, count]) => `✏️ ${error}: ${count}`)
-  .join("\n")}
-
-🕐 *За последние 7 дней*`
-
-    await ctx.reply(statsMessage, { parse_mode: "Markdown" })
+    console.log("✅ Данные сохранены в Supabase")
+    return messageData
   } catch (error) {
-    console.error("Ошибка получения NLP статистики:", error)
-    await ctx.reply("❌ Ошибка получения статистики NLP")
+    console.log("⚠️ Ошибка Supabase (продолжаем работу):", error)
+    return null
   }
-})
-
-// Команда /model - информация о моделях
-bot.command("model", async (ctx) => {
-  const modelInfo = process.env.EMOTION_MODEL || "advanced"
-
-  const modelDescriptions = {
-    advanced: `🧠 *Продвинутый NLP анализ*
-• Множественные AI модели
-• Исправление опечаток (RuSpellRuBERT)
-• Определение языка (XLM-RoBERTa)
-• Анализ эмоций (3+ модели)
-• Детекция сарказма (RoBERTa-Irony)
-• Огромная база сленга (5000+ выражений)
-• Нормализация текста`,
-
-    huggingface: `🤗 *RuBERT (Hugging Face)*
-• Специально обучена на русском языке
-• Быстрая обработка
-• Хорошо определяет базовые эмоции
-• Открытая модель`,
-
-    local: `💻 *Локальные алгоритмы*
-• Работает без интернета
-• Быстрая обработка
-• Расширенные словари
-• Анализ эмодзи и пунктуации`,
-  }
-
-  const currentModel = modelDescriptions[modelInfo as keyof typeof modelDescriptions] || modelDescriptions.advanced
-
-  await ctx.reply(
-    `📊 *Текущая система анализа:*
-
-${currentModel}
-
-*Статистика обработки:*
-• Точность: ${modelInfo === "advanced" ? "95%" : modelInfo === "huggingface" ? "87%" : "75%"}
-• Скорость: ${modelInfo === "advanced" ? "3-5 сек" : modelInfo === "huggingface" ? "1-2 сек" : "<1 сек"}
-• Языки: Русский, English, Deutsch, Français
-• Сленг: ${modelInfo === "advanced" ? "5000+ выражений" : "Базовый набор"}
-
-*Используемые модели:*
-${
-  modelInfo === "advanced"
-    ? `• RuSpellRuBERT (исправление ошибок)
-• XLM-RoBERTa (определение языка)
-• RuBERT-Emotion (анализ эмоций)
-• RoBERTa-Irony (детекция сарказма)
-• Custom Slang DB (нормализация сленга)`
-    : `• ${modelInfo === "huggingface" ? "RuBERT-Emotion" : "Локальные словари"}`
 }
 
-Для смены модели обратитесь к администратору.`,
-    { parse_mode: "Markdown" },
+// Обработчики команд
+bot.command("start", async (ctx) => {
+  console.log("📝 Команда /start от:", ctx.from?.username)
+  await ctx.reply(
+    "🤖 Привет! Я бот для анализа эмоций!\n\n" +
+      "✅ Бот работает и готов к анализу\n" +
+      "📝 Просто напишите любое сообщение для анализа\n\n" +
+      "Команды:\n" +
+      "/start - начать работу\n" +
+      "/test - тест бота\n" +
+      "/help - помощь",
   )
 })
 
-// Остальные команды остаются без изменений...
-bot.command("stats", async (ctx) => {
-  const chatId = ctx.chat?.id
-  if (!chatId) return
-
-  const stats = chatStats.get(chatId)
-  if (!stats) {
-    await ctx.reply("📊 Статистика пока не собрана. Отправьте несколько сообщений в чат.")
-    return
-  }
-
-  const totalMessages = stats.totalMessages
-  const emotions = stats.emotionStats
-  const incidents = stats.incidents.length
-
-  const emotionPercentages = Object.entries(emotions)
-    .map(([emotion, count]) => ({
-      emotion,
-      percentage: Math.round((count / totalMessages) * 100),
-    }))
-    .sort((a, b) => b.percentage - a.percentage)
-
-  const statsMessage = `📊 *Статистика чата*
-
-📝 *Всего сообщений:* ${totalMessages}
-⚠️ *Инцидентов:* ${incidents}
-🤖 *Модель:* ${process.env.EMOTION_MODEL || "advanced"}
-
-*Распределение эмоций:*
-${emotionPercentages
-  .map(({ emotion, percentage }) => {
-    const emoji =
-      emotion === "aggression"
-        ? "😡"
-        : emotion === "stress"
-          ? "😰"
-          : emotion === "sarcasm"
-            ? "😏"
-            : emotion === "positivity"
-              ? "😊"
-              : "😐"
-    return `${emoji} ${emotion}: ${percentage}%`
-  })
-  .join("\n")}
-
-*Пользователи с высоким риском:*
-${
-  Array.from(stats.userRisks.values())
-    .filter((user) => user.riskLevel === "high")
-    .map((user) => `⚠️ @${user.username || user.userId} (${user.incidents} инцидентов)`)
-    .join("\n") || "Нет пользователей с высоким риском"
-}
-
-🕐 *Обновлено:* ${new Date().toLocaleString("ru-RU")}`
-
-  await ctx.reply(statsMessage, { parse_mode: "Markdown" })
+bot.command("test", async (ctx) => {
+  console.log("🧪 Команда /test")
+  await ctx.reply("✅ Бот работает отлично! Тест пройден.")
 })
 
-// Обработка всех текстовых сообщений
+bot.command("help", async (ctx) => {
+  await ctx.reply(
+    "🔍 Как я работаю:\n\n" +
+      "• Анализирую эмоции в ваших сообщениях\n" +
+      "• Определяю токсичность и тональность\n" +
+      "• Работаю с русским языком\n" +
+      "• Использую локальный анализ по ключевым словам\n\n" +
+      "💬 Просто пишите как обычно, я буду анализировать!",
+  )
+})
+
+// Обработка текстовых сообщений
 bot.on("message:text", async (ctx) => {
-  const chatId = ctx.chat.id
-  const userId = ctx.from?.id
-  const username = ctx.from?.username
   const text = ctx.message.text
-  const chatTitle = ctx.chat.type === "group" || ctx.chat.type === "supergroup" ? ctx.chat.title : undefined
+  const chatId = ctx.chat.id
+  const userId = ctx.from.id
+  const username = ctx.from.username || ctx.from.first_name || "Unknown"
 
-  // Пропускаем команды
-  if (text.startsWith("/")) return
-
-  // Инициализируем статистику чата
-  if (!chatStats.has(chatId)) {
-    chatStats.set(chatId, {
-      totalMessages: 0,
-      emotionStats: {},
-      userRisks: new Map(),
-      incidents: [],
-    })
-  }
-
-  const stats = chatStats.get(chatId)!
-  stats.totalMessages++
+  console.log(`💬 Сообщение от ${username}: "${text}"`)
 
   try {
-    // Анализируем эмоции с продвинутым NLP
-    const analysis = await analyzeEmotion(text)
+    // Анализируем эмоции локально
+    const analysis = analyzeEmotionLocal(text)
+    console.log("🧠 Анализ:", analysis)
 
-    // Обновляем статистику эмоций
-    stats.emotionStats[analysis.emotion] = (stats.emotionStats[analysis.emotion] || 0) + 1
+    // Пытаемся сохранить в Supabase (не критично если не получится)
+    await saveToSupabase(chatId, userId, username, text, analysis)
 
-    // Определяем, является ли это инцидентом
-    const isIncident = analysis.severity === "high" || analysis.severity === "critical"
-
-    // Обновляем глобальную статистику
-    updateGlobalStats({
-      chatId,
-      chatTitle,
-      userId: userId!,
-      username,
-      emotion: analysis.emotion,
-      analysis,
-      isIncident,
-    })
-
-    // Обновляем информацию о пользователе
-    if (userId) {
-      const userRisk = stats.userRisks.get(userId) || {
-        userId,
-        username,
-        riskLevel: "low" as const,
-        incidents: 0,
-      }
-
-      if (isIncident) {
-        userRisk.incidents++
-        userRisk.lastIncident = new Date()
-
-        if (userRisk.incidents >= 5) userRisk.riskLevel = "high"
-        else if (userRisk.incidents >= 2) userRisk.riskLevel = "medium"
-
-        const incident = {
-          id: Date.now().toString(),
-          userId,
-          message: text,
-          emotion: analysis.emotion,
-          severity: analysis.severity,
-          timestamp: new Date(),
-        }
-        stats.incidents.push(incident)
-
-        // Уведомляем HR при критических инцидентах
-        if (analysis.severity === "critical" && MODERATION_SETTINGS.notifyHR) {
-          await notifyHR(chatId, {
-            ...incident,
-            username,
-            originalMessage: analysis.originalMessage,
-            correctedText: analysis.correctedText,
-            normalizedText: analysis.normalizedText,
-            slangDetected: analysis.slangDetected,
-            errorsFixed: analysis.errorsFixed,
-            detectedLanguage: analysis.detectedLanguage,
-            categories: analysis.categories,
-            modelUsed: analysis.modelUsed,
-          })
-        }
-
-        // Автоматическая модерация
-        if (MODERATION_SETTINGS.autoBlock && analysis.categories.toxicity > MODERATION_SETTINGS.thresholds.toxicity) {
-          try {
-            await ctx.deleteMessage()
-
-            let moderationMessage = `⚠️ Сообщение удалено за нарушение правил общения (токсичность: ${Math.round(analysis.categories.toxicity)}%).`
-
-            if (analysis.slangDetected && analysis.slangDetected.length > 0) {
-              moderationMessage += `\n\n🗣️ Обнаружен неуместный сленг: ${analysis.slangDetected.slice(0, 3).join(", ")}`
-            }
-
-            if (analysis.errorsFixed && analysis.errorsFixed.length > 0) {
-              moderationMessage += `\n✏️ Рекомендуется проверить орфографию.`
-            }
-
-            await ctx.reply(moderationMessage)
-          } catch (error) {
-            console.error("Ошибка удаления сообщения:", error)
-          }
-        }
-
-        // Предупреждение пользователю с деталями анализа
-        if (analysis.severity === "high") {
-          let warningMessage = `⚠️ @${username || userId}, обратите внимание на тон сообщения. Давайте поддерживать позитивную атмосферу в команде! 😊`
-
-          if (analysis.slangDetected && analysis.slangDetected.length > 0) {
-            warningMessage += `\n\n💡 Совет: избегайте сленга в рабочем общении.`
-          }
-
-          await ctx.reply(warningMessage, { reply_to_message_id: ctx.message.message_id })
-        }
-      }
-
-      stats.userRisks.set(userId, userRisk)
+    // Определяем эмодзи
+    const emotionEmojis: { [key: string]: string } = {
+      радость: "😊",
+      грусть: "😢",
+      гнев: "😡",
+      страх: "😰",
+      нейтрально: "😐",
     }
 
-    // Расширенное логирование
-    console.log(
-      `[${new Date().toISOString()}] Chat: ${chatId}, User: ${userId}, Emotion: ${analysis.emotion}, Confidence: ${analysis.confidence}%, Models: ${analysis.modelUsed?.join(",")}${analysis.slangDetected && analysis.slangDetected.length > 0 ? `, Slang: ${analysis.slangDetected.length}` : ""}${analysis.errorsFixed && analysis.errorsFixed.length > 0 ? `, Errors: ${analysis.errorsFixed.length}` : ""}`,
-    )
+    const emoji = emotionEmojis[analysis.primary_emotion] || "🤔"
+
+    // Формируем ответ
+    let response = `${emoji} **Эмоция**: ${analysis.primary_emotion}\n`
+    response += `📊 **Уверенность**: ${Math.round(analysis.confidence * 100)}%\n`
+    response += `🎭 **Тональность**: ${analysis.sentiment}\n`
+
+    if (analysis.toxicity > 0.2) {
+      response += `⚠️ **Токсичность**: ${Math.round(analysis.toxicity * 100)}%\n`
+    }
+
+    response += `🤖 ${analysis.explanation}`
+
+    // Предупреждения
+    if (analysis.toxicity > 0.6) {
+      response += `\n\n🚨 **Внимание!** Высокая токсичность обнаружена.`
+    } else if (analysis.toxicity > 0.3) {
+      response += `\n\n⚠️ Умеренная токсичность. Будьте внимательны к тону.`
+    }
+
+    await ctx.reply(response, {
+      reply_to_message_id: ctx.message.message_id,
+      parse_mode: "Markdown",
+    })
+
+    console.log("✅ Ответ отправлен")
   } catch (error) {
-    console.error("Ошибка анализа эмоций:", error)
-  }
-})
-
-// Обработка добавления бота в группу
-bot.on("my_chat_member", async (ctx) => {
-  const update = ctx.update.my_chat_member
-  if (update.new_chat_member.status === "member" || update.new_chat_member.status === "administrator") {
-    const modelInfo = process.env.EMOTION_MODEL || "advanced"
-    const welcomeMessage = `🤖 *EmoBot подключен к чату!*
-
-Привет! Теперь я буду анализировать эмоции в ваших сообщениях с помощью ${modelInfo === "advanced" ? "продвинутых AI моделей" : modelInfo === "huggingface" ? "RuBERT" : "локальных алгоритмов"}.
-
-*Что я умею:*
-• 🧠 Анализирую тональность с помощью ИИ
-• ✏️ Исправляю опечатки и ошибки
-• 🗣️ Распознаю сленг и жаргон
-• 🌐 Определяю язык сообщений
-• ⚠️ Предупреждаю о конфликтах
-• 🛡️ Модерирую токсичный контент
-• 📈 Веду детальную статистику
-
-Используйте /help для получения справки.
-
-*Важно:* Дайте мне права администратора для полноценной работы модерации.`
-
-    await ctx.reply(welcomeMessage, { parse_mode: "Markdown" })
+    console.error("❌ Ошибка:", error)
+    await ctx.reply("❌ Произошла ошибка при анализе. Попробуйте позже.")
   }
 })
 
 // Обработка ошибок
 bot.catch((err) => {
-  console.error("Ошибка бота:", err)
+  console.error("🚨 Ошибка бота:", err)
 })
 
-// Экспортируем webhook handler
+console.log("🚀 Бот инициализирован")
+
 export const POST = webhookCallback(bot, "std/http")
+
+// GET для проверки
+export async function GET() {
+  return new Response("✅ Webhook endpoint работает!", { status: 200 })
+}

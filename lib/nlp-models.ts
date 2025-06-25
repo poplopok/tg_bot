@@ -464,6 +464,8 @@ async function correctSpelling(text: string): Promise<{ corrected: string; error
     }
 
     const result = await response.json()
+    console.log(`[DEBUG ОРФОГРАФИЯ] Статус: ${response.status}`)
+    console.log(`[DEBUG ОРФОГРАФИЯ] Результат:`, JSON.stringify(result, null, 2))
 
     // Обрабатываем результат
     const corrected = result[0]?.generated_text || text
@@ -528,7 +530,10 @@ async function detectLanguage(text: string): Promise<string> {
     }
 
     const result = await response.json()
+    console.log(`[DEBUG ЯЗЫК] Статус: ${response.status}`)
+    console.log(`[DEBUG ЯЗЫК] Результат:`, JSON.stringify(result, null, 2))
     const topLanguage = result[0]?.[0]?.label || "ru"
+    console.log(`[DEBUG ЯЗЫК] Определенный язык: ${topLanguage}`)
 
     return topLanguage
   } catch (error) {
@@ -549,6 +554,10 @@ async function analyzeEmotionsHuggingFace(text: string): Promise<NLPResult["sent
         : "j-hartmann/emotion-english-distilroberta-base"
 
     console.log(`[ЭМОЦИИ] Используем модель: ${model} для языка: ${detectedLanguage}`)
+    console.log(`[DEBUG] API Key присутствует: ${!!process.env.HUGGINGFACE_API_KEY}`)
+    console.log(`[DEBUG] API Key длина: ${process.env.HUGGINGFACE_API_KEY?.length || 0}`)
+    console.log(`[DEBUG] Отправляем запрос к модели: ${model}`)
+    console.log(`[DEBUG] Текст для анализа: "${text}"`)
 
     const response = await fetch(`https://api-inference.huggingface.co/models/${model}`, {
       method: "POST",
@@ -570,7 +579,16 @@ async function analyzeEmotionsHuggingFace(text: string): Promise<NLPResult["sent
     }
 
     const result = await response.json()
-    console.log(`[ЭМОЦИИ] Результат от API:`, result)
+    console.log(`[DEBUG] Статус ответа: ${response.status}`)
+    console.log(`[DEBUG] Заголовки ответа:`, Object.fromEntries(response.headers.entries()))
+    console.log(`[DEBUG] Полный ответ от API:`, JSON.stringify(result, null, 2))
+    console.log(`[DEBUG] Тип результата:`, typeof result)
+    console.log(`[DEBUG] Является массивом:`, Array.isArray(result))
+
+    if (result.error) {
+      console.log(`[DEBUG] Ошибка в ответе API:`, result.error)
+      throw new Error(`API вернул ошибку: ${result.error}`)
+    }
 
     // Обрабатываем результат
     if (Array.isArray(result) && result.length > 0) {
@@ -587,6 +605,10 @@ async function analyzeEmotionsHuggingFace(text: string): Promise<NLPResult["sent
 
 // Функция для обработки результатов от Hugging Face
 function processEmotionResults(results: any[], language: string, text: string): NLPResult["sentiment"] {
+  console.log(`[DEBUG ОБРАБОТКА] Входные результаты:`, JSON.stringify(results, null, 2))
+  console.log(`[DEBUG ОБРАБОТКА] Язык: ${language}`)
+  console.log(`[DEBUG ОБРАБОТКА] Текст: "${text}"`)
+
   // Маппинг эмоций на наши категории
   const emotionMapping: Record<string, string> = {
     // Русские эмоции (rubert-tiny2-cedr-emotion-detection)
@@ -669,6 +691,12 @@ function processEmotionResults(results: any[], language: string, text: string): 
     dominantEmotion = maxCategory[0]
     maxConfidence = maxCategory[1]
   }
+
+  console.log(`[DEBUG ОБРАБОТКА] Финальный результат:`, {
+    emotion: dominantEmotion,
+    confidence: maxConfidence,
+    categories,
+  })
 
   return {
     emotion: dominantEmotion,
@@ -1018,6 +1046,8 @@ async function detectSarcasm(text: string): Promise<number> {
     }
 
     const result = await response.json()
+    console.log(`[DEBUG САРКАЗМ] Статус: ${response.status}`)
+    console.log(`[DEBUG САРКАЗМ] Результат:`, JSON.stringify(result, null, 2))
     const ironyScore =
       result[0]?.find(
         (item: any) => item.label.toLowerCase().includes("irony") || item.label.toLowerCase().includes("sarcasm"),

@@ -235,51 +235,165 @@ bot.command("health", async (ctx) => {
   await ctx.reply("🔍 Проверяю работу AI моделей...")
 
   try {
+    console.log(`[HEALTH CHECK] Начинаем проверку AI моделей`)
+    console.log(`[HEALTH CHECK] HUGGINGFACE_API_KEY установлен: ${!!process.env.HUGGINGFACE_API_KEY}`)
+
     const startTime = Date.now()
     const analysis = await analyzeEmotion(testPhrase)
     const endTime = Date.now()
     const processingTime = endTime - startTime
 
-    const healthMessage = `🏥 <b>Статус AI моделей</b>
+    console.log(`[HEALTH CHECK] Анализ завершен за ${processingTime}ms`)
+    console.log(`[HEALTH CHECK] Результат анализа:`, JSON.stringify(analysis, null, 2))
 
-✅ <b>Статус:</b> Все модели работают
+    const healthMessage = `🏥 <b>Детальная диагностика AI моделей</b>
+
+✅ <b>Статус:</b> Модели отвечают
 ⏱️ <b>Время обработки:</b> ${processingTime}ms
+🔑 <b>API ключ:</b> ${process.env.HUGGINGFACE_API_KEY ? "✅ Установлен" : "❌ Отсутствует"}
 🤖 <b>Активные модели:</b> ${analysis.modelUsed.join(", ")}
-🌐 <b>Определен язык:</b> ${analysis.detectedLanguage || "ru"}
-🎯 <b>Уверенность:</b> ${analysis.confidence}%
 
-<b>Тестовый результат:</b>
-• Эмоция: ${analysis.emotion}
-• Серьезность: ${analysis.severity}
-• Токсичность: ${analysis.categories.toxicity}%
+<b>Детальный результат:</b>
+🌐 <b>Язык:</b> ${analysis.detectedLanguage || "не определен"}
+🎯 <b>Эмоция:</b> ${analysis.emotion}
+📊 <b>Уверенность:</b> ${analysis.confidence.toFixed(1)}%
+⚠️ <b>Серьезность:</b> ${analysis.severity}
 
-${analysis.correctedText !== testPhrase ? `✏️ Исправления: Да` : "✏️ Исправления: Нет"}
-${analysis.slangDetected && analysis.slangDetected.length > 0 ? `🗣️ Сленг: ${analysis.slangDetected.length} выражений` : "🗣️ Сленг: Не обнаружен"}
+<b>Категории анализа:</b>
+😡 Агрессия: ${analysis.categories.aggression.toFixed(1)}%
+😰 Стресс: ${analysis.categories.stress.toFixed(1)}%
+😏 Сарказм: ${analysis.categories.sarcasm.toFixed(1)}%
+☣️ Токсичность: ${analysis.categories.toxicity.toFixed(1)}%
+😊 Позитив: ${analysis.categories.positivity.toFixed(1)}%
 
-🟢 <b>Все AI системы функционируют нормально</b>`
+<b>Обработка текста:</b>
+📝 Оригинал: "${escapeHtml(analysis.originalMessage || testPhrase)}"
+${analysis.correctedText !== testPhrase ? `✏️ Исправлено: "${escapeHtml(analysis.correctedText || "")}"` : "✏️ Исправлений не требуется"}
+${analysis.normalizedText !== testPhrase ? `🔄 Нормализовано: "${escapeHtml(analysis.normalizedText || "")}"` : "🔄 Нормализация не требуется"}
+
+${analysis.slangDetected && analysis.slangDetected.length > 0 ? `🗣️ Обнаружен сленг: ${analysis.slangDetected.join(", ")}` : "🗣️ Сленг не обнаружен"}
+${analysis.errorsFixed && analysis.errorsFixed.length > 0 ? `✏️ Исправлены ошибки: ${analysis.errorsFixed.join(", ")}` : "✏️ Ошибок не найдено"}
+
+🟢 <b>Диагностика завершена</b>`
 
     await ctx.reply(healthMessage, { parse_mode: "HTML" })
   } catch (error) {
-    const errorMessage = `🔴 <b>Ошибка AI моделей</b>
+    console.error(`[HEALTH CHECK] Критическая ошибка:`, error)
+
+    const errorMessage = `🔴 <b>Критическая ошибка AI моделей</b>
 
 ❌ <b>Статус:</b> Модели недоступны
-🚨 <b>Ошибка:</b> ${error}
+🔑 <b>API ключ:</b> ${process.env.HUGGINGFACE_API_KEY ? "✅ Установлен" : "❌ ОТСУТСТВУЕТ!"}
+🚨 <b>Ошибка:</b> ${escapeHtml(error.toString())}
 
 <b>Возможные причины:</b>
-• Нет доступа к Hugging Face API
-• Отсутствует HUGGINGFACE_API_KEY
-• Проблемы с интернет-соединением
-• Модели перегружены
+• ${!process.env.HUGGINGFACE_API_KEY ? "🔴 Отсутствует HUGGINGFACE_API_KEY" : "✅ API ключ есть"}
+• Нет доступа к api-inference.huggingface.co
+• Модели перегружены или недоступны
+• Проблемы с сетевым соединением
+• Неверный формат API ключа
 
-<b>Рекомендации:</b>
-• Проверьте переменные окружения
-• Убедитесь в наличии API ключа
-• Попробуйте позже
+<b>Для исправления:</b>
+1. Проверьте переменную HUGGINGFACE_API_KEY
+2. Убедитесь что ключ активен на huggingface.co
+3. Проверьте доступ к интернету
+4. Попробуйте позже (модели могут быть перегружены)
 
-⚠️ <b>В данный момент анализ эмоций недоступен</b>`
+⚠️ <b>AI анализ полностью недоступен</b>`
 
     await ctx.reply(errorMessage, { parse_mode: "HTML" })
   }
+})
+
+// Команда для детального тестирования каждой AI модели отдельно
+bot.command("debug_models", async (ctx) => {
+  await ctx.reply("🔍 Тестирую каждую AI модель отдельно...")
+
+  const testText = "ты дурак"
+  const models = [
+    {
+      name: "Определение языка",
+      url: "https://api-inference.huggingface.co/models/papluca/xlm-roberta-base-language-detection",
+      testData: { inputs: testText },
+    },
+    {
+      name: "Русские эмоции",
+      url: "https://api-inference.huggingface.co/models/cointegrated/rubert-tiny2-cedr-emotion-detection",
+      testData: { inputs: testText },
+    },
+    {
+      name: "Английские эмоции",
+      url: "https://api-inference.huggingface.co/models/j-hartmann/emotion-english-distilroberta-base",
+      testData: { inputs: testText },
+    },
+    {
+      name: "Исправление орфографии",
+      url: "https://api-inference.huggingface.co/models/ai-forever/RuSpellRuBERT",
+      testData: { inputs: testText },
+    },
+    {
+      name: "Детекция сарказма",
+      url: "https://api-inference.huggingface.co/models/cardiffnlp/twitter-roberta-base-irony",
+      testData: { inputs: testText },
+    },
+  ]
+
+  let debugReport = `🤖 <b>Детальный отчет по AI моделям</b>\n\n`
+  debugReport += `🔑 <b>API ключ:</b> ${process.env.HUGGINGFACE_API_KEY ? `✅ Есть (${process.env.HUGGINGFACE_API_KEY.substring(0, 8)}...)` : "❌ ОТСУТСТВУЕТ"}\n`
+  debugReport += `📝 <b>Тестовая фраза:</b> "${escapeHtml(testText)}"\n\n`
+
+  for (const model of models) {
+    try {
+      console.log(`[DEBUG MODEL] Тестируем: ${model.name}`)
+
+      const startTime = Date.now()
+      const response = await fetch(model.url, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${process.env.HUGGINGFACE_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          ...model.testData,
+          options: { wait_for_model: true },
+        }),
+      })
+
+      const endTime = Date.now()
+      const result = await response.json()
+
+      console.log(`[DEBUG MODEL] ${model.name} - Статус: ${response.status}`)
+      console.log(`[DEBUG MODEL] ${model.name} - Результат:`, JSON.stringify(result, null, 2))
+
+      debugReport += `🔸 <b>${model.name}</b>\n`
+      debugReport += `   📊 Статус: ${response.status === 200 ? "✅" : "❌"} ${response.status}\n`
+      debugReport += `   ⏱️ Время: ${endTime - startTime}ms\n`
+
+      if (response.status === 200) {
+        if (Array.isArray(result) && result.length > 0) {
+          debugReport += `   📋 Результат: ${JSON.stringify(result[0]).substring(0, 100)}...\n`
+        } else if (result.error) {
+          debugReport += `   ❌ Ошибка: ${escapeHtml(result.error)}\n`
+        } else {
+          debugReport += `   📋 Результат: ${JSON.stringify(result).substring(0, 100)}...\n`
+        }
+      } else {
+        debugReport += `   ❌ HTTP ошибка: ${response.statusText}\n`
+        if (result.error) {
+          debugReport += `   💬 Детали: ${escapeHtml(result.error)}\n`
+        }
+      }
+      debugReport += `\n`
+    } catch (error) {
+      console.error(`[DEBUG MODEL] Ошибка ${model.name}:`, error)
+      debugReport += `🔸 <b>${model.name}</b>\n`
+      debugReport += `   ❌ Критическая ошибка: ${escapeHtml(error.toString())}\n\n`
+    }
+  }
+
+  debugReport += `\n🕐 <b>Тестирование завершено:</b> ${new Date().toLocaleString("ru-RU")}`
+
+  await ctx.reply(debugReport, { parse_mode: "HTML" })
 })
 
 // Команда для тестирования AI анализа

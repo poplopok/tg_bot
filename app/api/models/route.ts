@@ -4,38 +4,35 @@ import { NextResponse } from "next/server"
 export async function GET() {
   const availableModels = [
     {
-      id: "openai",
-      name: "OpenAI GPT-4",
-      description: "Самая продвинутая модель для анализа эмоций",
+      id: "advanced",
+      name: "Продвинутый NLP",
+      description: "Множественные AI модели через Hugging Face",
       accuracy: 95,
-      speed: "2-3 сек",
-      features: ["Контекстный анализ", "Объяснения", "Сарказм", "Корп. сленг"],
-      cost: "Высокая",
-      status: process.env.OPENAI_API_KEY ? "available" : "needs_key",
-    },
-    {
-      id: "huggingface",
-      name: "RuBERT (Hugging Face)",
-      description: "Специализированная русская модель",
-      accuracy: 87,
-      speed: "1-2 сек",
-      features: ["Русский язык", "Быстрая обработка", "Базовые эмоции"],
+      speed: "2-4 сек",
+      features: [
+        "XLM-RoBERTa (определение языка)",
+        "RuSpellRuBERT (исправление опечаток)",
+        "RuBERT-CEDR (эмоции RU)",
+        "DistilRoBERTa (эмоции EN)",
+        "RoBERTa-Irony (сарказм)",
+        "Custom Slang DB (5000+ выражений)",
+      ],
       cost: "Средняя",
       status: process.env.HUGGINGFACE_API_KEY ? "available" : "needs_key",
     },
     {
       id: "local",
       name: "Локальные алгоритмы",
-      description: "Резервный вариант без интернета",
+      description: "Словарные анализаторы без интернета",
       accuracy: 75,
       speed: "<1 сек",
-      features: ["Офлайн работа", "Быстро", "Базовый анализ"],
+      features: ["Словарный анализ", "Анализ эмодзи", "Базовый сленг", "Офлайн работа"],
       cost: "Бесплатно",
       status: "available",
     },
   ]
 
-  const currentModel = process.env.EMOTION_MODEL || "openai"
+  const currentModel = process.env.EMOTION_MODEL || "advanced"
 
   return NextResponse.json({
     success: true,

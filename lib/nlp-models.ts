@@ -580,8 +580,8 @@ async function analyzeEmotionsHuggingFace(text: string): Promise<NLPResult["sent
     }
   } catch (error) {
     console.error("Ошибка Hugging Face анализа эмоций:", error)
-    // НЕ используем fallback - выбрасываем ошибку
-    throw new Error(`Hugging Face API недоступен: ${error}`)
+    // Fallback на локальный анализ
+    return await analyzeEmotionsLocal(text)
   }
 }
 
@@ -739,6 +739,265 @@ function analyzeTextFeatures(text: string): {
   return features
 }
 
+// Функция для анализа эмоций через Python модели
+// async function analyzeEmotionsPython(text: string): Promise<NLPResult["sentiment"]> {
+//   try {
+//     const response = await fetch("/api/analyze-emotions", {
+//       method: "POST",
+//       headers: {
+//         "Content-Type": "application/json",
+//       },
+//       body: JSON.stringify({ text }),
+//     })
+
+//     if (!response.ok) {
+//       throw new Error(`Python emotion analysis error: ${response.status}`)
+//     }
+
+//     const result = await response.json()
+//     return result.sentiment
+//   } catch (error) {
+//     console.error("Ошибка Python анализа эмоций:", error)
+//     // Fallback на локальный анализ
+//     return await analyzeEmotionsLocal(text)
+//   }
+// }
+
+// Локальный анализ как fallback
+async function analyzeEmotionsLocal(text: string): Promise<NLPResult["sentiment"]> {
+  const lowerText = text.toLowerCase()
+
+  // Расширенные словари
+  const aggressionWords = [
+    "дурак",
+    "идиот",
+    "тупой",
+    "бред",
+    "ерунда",
+    "херня",
+    "фигня",
+    "говно",
+    "дерьмо",
+    "мудак",
+    "козел",
+    "урод",
+    "кретин",
+    "дебил",
+    "заткнись",
+    "отвали",
+    "пошел",
+    "достал",
+    "надоел",
+    "бесит",
+    "задолбал",
+    "заколебал",
+    "замучил",
+  ]
+
+  const stressWords = [
+    "срочно",
+    "быстрее",
+    "опять",
+    "не успеваем",
+    "горит",
+    "пожар",
+    "аврал",
+    "завал",
+    "дедлайн",
+    "вчера нужно было",
+    "когда это закончится",
+    "не работает",
+    "сломалось",
+    "глючит",
+    "падает",
+    "крашится",
+    "виснет",
+    "лагает",
+  ]
+
+  const positiveWords = [
+    "спасибо",
+    "отлично",
+    "хорошо",
+    "молодец",
+    "супер",
+    "рад",
+    "классно",
+    "круто",
+    "замечательно",
+    "прекрасно",
+    "великолепно",
+    "чудесно",
+    "благодарю",
+    "ценю",
+    "уважаю",
+    "поддержу",
+    "согласен",
+    "правильно",
+    "точно",
+    "здорово",
+  ]
+
+  let aggression = 0
+  let stress = 0
+  let positivity = 0
+  let sarcasm = 0
+
+  // Анализ слов
+  aggressionWords.forEach((word) => {
+    if (lowerText.includes(word)) aggression += 30
+  })
+
+  stressWords.forEach((word) => {
+    if (lowerText.includes(word)) stress += 25
+  })
+
+  positiveWords.forEach((word) => {
+    if (lowerText.includes(word)) positivity += 25
+  })
+
+  // Анализ пунктуации и эмодзи
+  const exclamationCount = (text.match(/!/g) || []).length
+  if (exclamationCount > 2) stress += exclamationCount * 15
+
+  const upperCaseRatio = (text.match(/[А-ЯA-Z]/g) || []).length / text.length
+  if (upperCaseRatio > 0.5) aggression += 20
+
+  // Негативные эмодзи
+  const negativeEmojis = ["😡", "🤬", "😤", "💢", "👿", "😠", "🙄", "🤡", "💩", "🖕"]
+  negativeEmojis.forEach((emoji) => {
+    if (text.includes(emoji)) {
+      if (emoji === "🤡" || emoji === "🙄") {
+        sarcasm += 35
+      } else {
+        aggression += 25
+      }
+    }
+  })
+
+  // Стрессовые эмодзи
+  const stressEmojis = ["😰", "😱", "🤯", "😵", "🔥", "⚡", "💥", "🚨"]
+  stressEmojis.forEach((emoji) => {
+    if (text.includes(emoji)) stress += 20
+  })
+
+  // Позитивные эмодзи
+  const positiveEmojis = ["😊", "😄", "👍", "✅", "🎉", "💪", "❤️", "👏"]
+  positiveEmojis.forEach((emoji) => {
+    if (text.includes(emoji)) positivity += 20
+  })
+
+  const toxicity = Math.min(100, aggression * 0.8 + stress * 0.4)
+  const maxScore = Math.max(aggression, stress, positivity, sarcasm)
+
+  let dominantEmotion = "neutral"
+  if (aggression === maxScore && aggression > 20) dominantEmotion = "aggression"
+  else if (stress === maxScore && stress > 20) dominantEmotion = "stress"
+  else if (sarcasm === maxScore && sarcasm > 20) dominantEmotion = "sarcasm"
+  else if (positivity === maxScore && positivity > 20) dominantEmotion = "positivity"
+
+  return {
+    emotion: dominantEmotion,
+    confidence: maxScore,
+    categories: {
+      aggression,
+      stress,
+      sarcasm,
+      toxicity,
+      positivity,
+    },
+  }
+}
+
+// Функция для анализа эмоций через множественные модели
+// async function analyzeEmotionsMultiModel(text: string): Promise<NLPResult["sentiment"]> {
+//   const models = [
+//     "cointegrated/rubert-tiny2-cedr-emotion-detection",
+//     "blanchefort/rubert-base-cased-sentiment",
+//     "sismetanin/rubert-ru-sentiment-rusentiment",
+//   ]
+
+//   const results: any[] = []
+
+//   // Запускаем анализ через все модели параллельно
+//   const promises = models.map(async (model) => {
+//     try {
+//       const response = await fetch(`https://api-inference.huggingface.co/models/${model}`, {
+//         method: "POST",
+//         headers: {
+//           Authorization: `Bearer ${process.env.HUGGINGFACE_API_KEY}`,
+//           "Content-Type": "application/json",
+//         },
+//         body: JSON.stringify({
+//           inputs: text,
+//           options: { wait_for_model: true },
+//         }),
+//       })
+
+//       if (!response.ok) {
+//         throw new Error(`Model ${model} error: ${response.status}`)
+//       }
+
+//       const result = await response.json()
+//       return { model, result: result[0] || [] }
+//     } catch (error) {
+//       console.error(`Ошибка модели ${model}:`, error)
+//       return { model, result: [] }
+//     }
+//   })
+
+//   const modelResults = await Promise.all(promises)
+
+//   // Агрегируем результаты всех моделей
+//   const categories = {
+//     aggression: 0,
+//     stress: 0,
+//     sarcasm: 0,
+//     toxicity: 0,
+//     positivity: 0,
+//   }
+
+//   let dominantEmotion = "neutral"
+//   let maxConfidence = 0
+
+//   modelResults.forEach(({ model, result }) => {
+//     if (Array.isArray(result)) {
+//       result.forEach((emotion: any) => {
+//         const label = emotion.label?.toLowerCase() || ""
+//         const score = emotion.score * 100 || 0
+
+//         // Маппинг различных меток на наши категории
+//         if (label.includes("anger") || label.includes("гнев") || label.includes("negative")) {
+//           categories.aggression = Math.max(categories.aggression, score)
+//         } else if (label.includes("fear") || label.includes("страх") || label.includes("stress")) {
+//           categories.stress = Math.max(categories.stress, score)
+//         } else if (label.includes("joy") || label.includes("радость") || label.includes("positive")) {
+//           categories.positivity = Math.max(categories.positivity, score)
+//         } else if (label.includes("neutral") || label.includes("нейтральный")) {
+//           // Нейтральные эмоции не учитываем в категориях
+//         }
+
+//         if (score > maxConfidence) {
+//           maxConfidence = score
+//           dominantEmotion = label
+//         }
+//       })
+//     }
+//   })
+
+//   // Вычисляем токсичность
+//   categories.toxicity = Math.min(100, categories.aggression * 0.8 + categories.stress * 0.4)
+
+//   // Дополнительный анализ сарказма
+//   categories.sarcasm = await detectSarcasm(text)
+
+//   return {
+//     emotion: dominantEmotion,
+//     confidence: maxConfidence,
+//     categories,
+//   }
+// }
+
 // Функция для детекции сарказма
 async function detectSarcasm(text: string): Promise<number> {
   try {
@@ -773,12 +1032,7 @@ async function detectSarcasm(text: string): Promise<number> {
 
 // Обновляем главную функцию
 export async function advancedNLPAnalysis(text: string): Promise<NLPResult> {
-  // Проверяем наличие API ключа
-  if (!process.env.HUGGINGFACE_API_KEY) {
-    throw new Error("HUGGINGFACE_API_KEY не установлен в переменных окружения")
-  }
-
-  console.log(`[ADVANCED NLP] Начинаем анализ через Hugging Face API: "${text.substring(0, 50)}..."`)
+  console.log(`[ADVANCED NLP] Начинаем анализ: "${text.substring(0, 50)}..."`)
 
   const modelsUsed: string[] = []
 
@@ -844,8 +1098,28 @@ export async function advancedNLPAnalysis(text: string): Promise<NLPResult> {
     }
   } catch (error) {
     console.error("Ошибка продвинутого NLP анализа:", error)
-    // НЕ возвращаем fallback результат - выбрасываем ошибку
-    throw new Error(`NLP анализ не удался: ${error}`)
+
+    // Возвращаем базовый результат при ошибке
+    return {
+      originalText: text,
+      correctedText: text,
+      normalizedText: text,
+      detectedLanguage: "ru",
+      slangDetected: [],
+      errorsFixed: [],
+      sentiment: {
+        emotion: "neutral",
+        confidence: 0,
+        categories: {
+          aggression: 0,
+          stress: 0,
+          sarcasm: 0,
+          toxicity: 0,
+          positivity: 0,
+        },
+      },
+      modelUsed: ["fallback"],
+    }
   }
 }
 

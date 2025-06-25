@@ -728,30 +728,6 @@ function analyzeTextFeatures(text: string): {
   return features
 }
 
-// Функция для анализа эмоций через Python модели
-// async function analyzeEmotionsPython(text: string): Promise<NLPResult["sentiment"]> {
-//   try {
-//     const response = await fetch("/api/analyze-emotions", {
-//       method: "POST",
-//       headers: {
-//         "Content-Type": "application/json",
-//       },
-//       body: JSON.stringify({ text }),
-//     })
-
-//     if (!response.ok) {
-//       throw new Error(`Python emotion analysis error: ${response.status}`)
-//     }
-
-//     const result = await response.json()
-//     return result.sentiment
-//   } catch (error) {
-//     console.error("Ошибка Python анализа эмоций:", error)
-//     // Fallback на локальный анализ
-//     return await analyzeEmotionsLocal(text)
-//   }
-// }
-
 // Усиленный локальный анализ как fallback
 async function analyzeEmotionsLocal(text: string): Promise<NLPResult["sentiment"]> {
   console.log(`[ЛОКАЛЬНЫЙ АНАЛИЗ] Анализируем: "${text}"`)
@@ -1108,9 +1084,6 @@ function processTransformersResults(results: any[], text: string): NLPResult["se
   }
 }
 
-// Экспортируем функции для использования в других модулях
-export { analyzeEmotionsLocal, analyzeEmotionsHuggingFace, advancedNLPAnalysis }
-
 // Главная функция для продвинутого NLP анализа
 export async function advancedNLPAnalysis(text: string): Promise<NLPResult> {
   console.log(`[ADVANCED NLP] Начинаем анализ: "${text.substring(0, 50)}..."`)
@@ -1160,6 +1133,9 @@ export async function advancedNLPAnalysis(text: string): Promise<NLPResult> {
     }
   }
 }
+
+// Экспортируем дополнительные функции
+export { analyzeEmotionsLocal, analyzeEmotionsHuggingFace }
 
 // Функция для получения статистики NLP (заглушка)
 export async function getNLPStats() {

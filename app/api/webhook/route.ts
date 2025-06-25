@@ -133,48 +133,47 @@ function getNeutralResult(text: string, error?: Error): EmotionAnalysis {
   }
 }
 
+// Функция для безопасного экранирования Markdown
+function escapeMarkdown(text: string): string {
+  return text
+    .replace(/\\/g, "\\\\")
+    .replace(/\*/g, "\\*")
+    .replace(/_/g, "\\_")
+    .replace(/\[/g, "\\[")
+    .replace(/\]/g, "\\]")
+    .replace(/\(/g, "\\(")
+    .replace(/\)/g, "\\)")
+    .replace(/~/g, "\\~")
+    .replace(/`/g, "\\`")
+    .replace(/>/g, "\\>")
+    .replace(/#/g, "\\#")
+    .replace(/\+/g, "\\+")
+    .replace(/-/g, "\\-")
+    .replace(/=/g, "\\=")
+    .replace(/\|/g, "\\|")
+    .replace(/\{/g, "\\{")
+    .replace(/\}/g, "\\}")
+    .replace(/\./g, "\\.")
+    .replace(/!/g, "\\!")
+}
+
 // Функция для отправки уведомления HR
 async function notifyHR(chatId: number, incident: any) {
   if (!MODERATION_SETTINGS.hrChatId) return
 
+  const safeMessage = escapeMarkdown(incident.originalMessage || incident.message)
+  const safeUsername = escapeMarkdown(incident.username || "неизвестен")
+
   const message = `🚨 *Инцидент в корпоративном чате*
 
 📍 *Чат:* ${chatId}
-👤 *Пользователь:* @${incident.username || "неизвестен"}
+👤 *Пользователь:* @${safeUsername}
 ⚠️ *Тип:* ${incident.emotion}
 📊 *Серьезность:* ${incident.severity}
 🤖 *AI Модели:* ${incident.modelUsed?.join(", ") || "unknown"}
 
 📝 *Оригинальное сообщение:*
-"${incident.originalMessage || incident.message}"
-
-${
-  incident.correctedText && incident.correctedText !== incident.originalMessage
-    ? `📝 *Исправленный текст:*
-"${incident.correctedText}"`
-    : ""
-}
-
-${
-  incident.normalizedText && incident.normalizedText !== incident.correctedText
-    ? `📝 *Нормализованный текст:*
-"${incident.normalizedText}"`
-    : ""
-}
-
-${
-  incident.slangDetected && incident.slangDetected.length > 0
-    ? `🗣️ *Обнаруженный сленг:*
-${incident.slangDetected.join(", ")}`
-    : ""
-}
-
-${
-  incident.errorsFixed && incident.errorsFixed.length > 0
-    ? `✏️ *Исправленные ошибки:*
-${incident.errorsFixed.join(", ")}`
-    : ""
-}
+"${safeMessage}"
 
 *AI анализ эмоций:*
 • Агрессия: ${incident.categories?.aggression || 0}%
@@ -188,7 +187,7 @@ ${incident.errorsFixed.join(", ")}`
 
 🕐 *Время:* ${new Date().toLocaleString("ru-RU")}
 
-#инцидент #ai_модерация #nlp #${incident.modelUsed?.join("_") || "unknown"}`
+#инцидент #ai_модерация #nlp`
 
   try {
     await bot.api.sendMessage(MODERATION_SETTINGS.hrChatId, message, {
@@ -196,6 +195,12 @@ ${incident.errorsFixed.join(", ")}`
     })
   } catch (error) {
     console.error("Ошибка отправки уведомления HR:", error)
+    // Fallback без Markdown
+    try {
+      await bot.api.sendMessage(MODERATION_SETTINGS.hrChatId, message.replace(/[*_`]/g, ""))
+    } catch (fallbackError) {
+      console.error("Ошибка fallback отправки:", fallbackError)
+    }
   }
 }
 
@@ -220,7 +225,7 @@ bot.command("start", async (ctx) => {
 
 *Команды для администраторов:*
 /stats - Статистика чата
-/nlp_stats - Статистика AI анализа
+/nlp\_stats - Статистика AI анализа
 /model - Информация об AI моделях
 /test - Тестирование AI анализа
 /health - Проверка работы AI моделей
@@ -375,20 +380,11 @@ bot.command("model", async (ctx) => {
   const aiModelInfo = `🧠 *AI-только анализ*
 
 *Используемые AI модели Hugging Face:*
-• 🌐 **XLM-RoBERTa** - определение языка
-  \`papluca/xlm-roberta-base-language-detection\`
-  
-• ✏️ **RuSpellRuBERT** - исправление опечаток
-  \`ai-forever/RuSpellRuBERT\`
-  
-• 😊 **RuBERT-CEDR** - анализ эмоций (русский)
-  \`cointegrated/rubert-tiny2-cedr-emotion-detection\`
-  
-• 😊 **DistilRoBERTa** - анализ эмоций (английский)
-  \`j-hartmann/emotion-english-distilroberta-base\`
-  
-• 😏 **RoBERTa-Irony** - детекция сарказма
-  \`cardiffnlp/twitter-roberta-base-irony\`
+• 🌐 *XLM-RoBERTa* - определение языка
+• ✏️ *RuSpellRuBERT* - исправление опечаток
+• 😊 *RuBERT-CEDR* - анализ эмоций (русский)
+• 😊 *DistilRoBERTa* - анализ эмоций (английский)
+• 😏 *RoBERTa-Irony* - детекция сарказма
 
 *Возможности AI системы:*
 • Поддержка 10+ языков
@@ -407,9 +403,9 @@ bot.command("model", async (ctx) => {
 *Текущий режим:* ${modelInfo === "ai" || modelInfo === "advanced" ? "🟢 AI активен" : "🔴 AI отключен"}
 
 *Доступные режимы:*
-• \`EMOTION_MODEL=ai\` - только AI модели
-• \`EMOTION_MODEL=advanced\` - только AI модели  
-• \`EMOTION_MODEL=disabled\` - анализ отключен
+• EMOTION\_MODEL=ai - только AI модели
+• EMOTION\_MODEL=advanced - только AI модели  
+• EMOTION\_MODEL=disabled - анализ отключен
 
 ⚠️ *Локальные словари полностью удалены*
 🤖 *Используются исключительно AI модели*`

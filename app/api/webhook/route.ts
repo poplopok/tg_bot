@@ -364,35 +364,41 @@ bot.command("debug_models", async (ctx) => {
     console.log(`[DEBUG MODEL] ${model.name} - Статус: ${response.status}`)
     console.log(`[DEBUG MODEL] ${model.name} - Результат:`, JSON.stringify(result, null, 2))
 
-    debugReport += `🔸 <b>${model.name}</b>\n`
-    debugReport += `   📊 Статус: ${response.status === 200 ? "✅" : "❌"} ${response.status}\n`
-    debugReport += `   ⏱️ Время: ${endTime - startTime}ms\n`
-
     if (response.status === 200) {
+      console.log(`[DEBUG MODEL] Raw result type: ${typeof result}`)
+      console.log(`[DEBUG MODEL] Raw result keys: ${Object.keys(result)}`)
+
       if (Array.isArray(result) && result.length > 0) {
         debugReport += `   📋 <b>Детальные результаты:</b>\n`
-        result.slice(0, 5).forEach((emotion: any) => {
-          debugReport += `      • ${emotion.label}: ${(emotion.score * 100).toFixed(1)}%\n`
+        result.slice(0, 5).forEach((emotion: any, index: number) => {
+          console.log(`[DEBUG MODEL] Emotion ${index}:`, emotion)
+          const label = emotion?.label || emotion?.LABEL || "unknown"
+          const score = emotion?.score || emotion?.SCORE || 0
+          debugReport += `      • ${label}: ${(score * 100).toFixed(1)}%\n`
         })
       } else if (result.error) {
         debugReport += `   ❌ Ошибка: ${escapeHtml(result.error)}\n`
+      } else if (result[0] && typeof result[0] === "object") {
+        // Возможно, результат в другом формате
+        debugReport += `   📋 Альтернативный формат:\n`
+        debugReport += `      ${JSON.stringify(result).substring(0, 200)}...\n`
       } else {
-        debugReport += `   📋 Результат: ${JSON.stringify(result).substring(0, 100)}...\n`
-      }
-    } else {
-      debugReport += `   ❌ HTTP ошибка: ${response.statusText}\n`
-      if (result.error) {
-        debugReport += `   💬 Детали: ${escapeHtml(result.error)}\n`
+        debugReport += `   📋 Неожиданный формат: ${JSON.stringify(result).substring(0, 100)}...\n`
       }
     }
 
     // Тестируем локальный анализ как сравнение
     debugReport += `\n🏠 <b>Локальный анализ (для сравнения):</b>\n`
-    const { analyzeEmotionsLocal } = await import("@/lib/nlp-models")
-    const localResult = await analyzeEmotionsLocal(testText)
-    debugReport += `   🎯 Эмоция: ${localResult.emotion} (${localResult.confidence.toFixed(1)}%)\n`
-    debugReport += `   😡 Агрессия: ${localResult.categories.aggression.toFixed(1)}%\n`
-    debugReport += `   ☣️ Токсичность: ${localResult.categories.toxicity.toFixed(1)}%\n`
+    try {
+      // Импортируем функцию правильно
+      const nlpModule = await import("@/lib/nlp-models")
+      const localResult = await nlpModule.analyzeEmotionsLocal("ты дурак")
+      debugReport += `   🎯 Эмоция: ${localResult.emotion} (${localResult.confidence.toFixed(1)}%)\n`
+      debugReport += `   😡 Агрессия: ${localResult.categories.aggression.toFixed(1)}%\n`
+      debugReport += `   ☣️ Токсичность: ${localResult.categories.toxicity.toFixed(1)}%\n`
+    } catch (localError) {
+      debugReport += `   ❌ Ошибка локального анализа: ${localError}\n`
+    }
   } catch (error) {
     console.error(`[DEBUG MODEL] Ошибка ${model.name}:`, error)
     debugReport += `🔸 <b>${model.name}</b>\n`

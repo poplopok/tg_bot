@@ -561,6 +561,15 @@ async function analyzeEmotionsHuggingFace(text: string): Promise<NLPResult["sent
 function processDistilRobertaEmotionResults(results: any[], text: string): NLPResult["sentiment"] {
   console.log(`[DEBUG DISTILROBERTA] Входные результаты:`, JSON.stringify(results, null, 2))
   console.log(`[DEBUG DISTILROBERTA] Текст: "${text}"`)
+  console.log(`[DEBUG DISTILROBERTA] Тип результатов: ${typeof results}`)
+  console.log(`[DEBUG DISTILROBERTA] Является массивом: ${Array.isArray(results)}`)
+  console.log(`[DEBUG DISTILROBERTA] Длина: ${results?.length}`)
+
+  // Проверяем структуру первого элемента
+  if (results && results.length > 0) {
+    console.log(`[DEBUG DISTILROBERTA] Первый элемент:`, results[0])
+    console.log(`[DEBUG DISTILROBERTA] Ключи первого элемента:`, Object.keys(results[0] || {}))
+  }
 
   // Маппинг эмоций DistilRoBERTa на наши категории
   const emotionMapping: Record<string, string> = {
@@ -593,38 +602,68 @@ function processDistilRobertaEmotionResults(results: any[], text: string): NLPRe
   let dominantEmotion = "neutral"
   let maxConfidence = 0
 
-  // Обрабатываем результаты
-  results.forEach((emotion: any) => {
-    const label = emotion.label?.toLowerCase() || ""
-    const score = (emotion.score || 0) * 100
+  // Обрабатываем результаты с проверкой формата
+  if (Array.isArray(results)) {
+    results.forEach((emotion: any, index: number) => {
+      console.log(`[DEBUG DISTILROBERTA] Обрабатываем элемент ${index}:`, emotion)
 
-    console.log(`[DEBUG DISTILROBERTA] Обрабатываем: ${label} = ${score.toFixed(1)}%`)
+      // Пробуем разные варианты получения label и score
+      const label = (emotion?.label || emotion?.LABEL || emotion?.name || "unknown").toLowerCase()
+      const score = (emotion?.score || emotion?.SCORE || emotion?.confidence || 0) * 100
 
-    // Обновляем максимальную уверенность
-    if (score > maxConfidence) {
-      maxConfidence = score
-      dominantEmotion = emotionMapping[label] || "neutral"
-    }
+      console.log(`[DEBUG DISTILROBERTA] Извлечено: ${label} = ${score.toFixed(1)}%`)
 
-    // Распределяем по категориям
-    const mappedCategory = emotionMapping[label]
-    if (mappedCategory === "aggression") {
-      categories.aggression = Math.max(categories.aggression, score)
-    } else if (mappedCategory === "stress") {
-      categories.stress = Math.max(categories.stress, score)
-    } else if (mappedCategory === "positivity") {
-      categories.positivity = Math.max(categories.positivity, score)
-    }
-  })
+      if (label !== "unknown" && !isNaN(score)) {
+        // Обновляем максимальную уверенность
+        if (score > maxConfidence) {
+          maxConfidence = score
+          dominantEmotion = emotionMapping[label] || "neutral"
+        }
 
-  // Дополнительный анализ для улучшения точности
-  const additionalAnalysis = analyzeTextFeatures(text)
+        // Распределяем по категориям
+        const mappedCategory = emotionMapping[label]
+        if (mappedCategory === "aggression") {
+          categories.aggression = Math.max(categories.aggression, score)
+        } else if (mappedCategory === "stress") {
+          categories.stress = Math.max(categories.stress, score)
+        } else if (mappedCategory === "positivity") {
+          categories.positivity = Math.max(categories.positivity, score)
+        }
+      }
+    })
+  }
 
-  // Объединяем результаты AI и локального анализа
-  categories.aggression = Math.min(100, categories.aggression + additionalAnalysis.aggression)
-  categories.stress = Math.min(100, categories.stress + additionalAnalysis.stress)
-  categories.positivity = Math.min(100, categories.positivity + additionalAnalysis.positivity)
-  categories.sarcasm = additionalAnalysis.sarcasm
+  // Если не удалось извлечь данные из API, используем локальный анализ
+  if (maxConfidence === 0) {
+    console.log(`[DEBUG DISTILROBERTA] Не удалось извлечь данные из API, используем локальный анализ`)
+    const localAnalysis = analyzeTextFeatures(text)
+    categories.aggression = localAnalysis.aggression
+    categories.stress = localAnalysis.stress
+    categories.positivity = localAnalysis.positivity
+    categories.sarcasm = localAnalysis.sarcasm
+
+    const maxLocal = Math.max(
+      localAnalysis.aggression,
+      localAnalysis.stress,
+      localAnalysis.positivity,
+      localAnalysis.sarcasm,
+    )
+    if (localAnalysis.aggression === maxLocal && maxLocal > 25) dominantEmotion = "aggression"
+    else if (localAnalysis.stress === maxLocal && maxLocal > 25) dominantEmotion = "stress"
+    else if (localAnalysis.positivity === maxLocal && maxLocal > 25) dominantEmotion = "positivity"
+    else if (localAnalysis.sarcasm === maxLocal && maxLocal > 25) dominantEmotion = "sarcasm"
+
+    maxConfidence = maxLocal
+  } else {
+    // Дополнительный анализ для улучшения точности
+    const additionalAnalysis = analyzeTextFeatures(text)
+
+    // Объединяем результаты AI и локального анализа
+    categories.aggression = Math.min(100, categories.aggression + additionalAnalysis.aggression)
+    categories.stress = Math.min(100, categories.stress + additionalAnalysis.stress)
+    categories.positivity = Math.min(100, categories.positivity + additionalAnalysis.positivity)
+    categories.sarcasm = additionalAnalysis.sarcasm
+  }
 
   // Вычисляем токсичность
   categories.toxicity = Math.min(100, categories.aggression * 0.8 + categories.stress * 0.4)
@@ -1100,3 +1139,6 @@ function processTransformersResults(results: any[], text: string): NLPResult["se
     categories,
   }
 }
+
+// В конце файла добавьте:
+export { analyzeEmotionsLocal }

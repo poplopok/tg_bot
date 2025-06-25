@@ -1,6 +1,3 @@
-// Продвинутая система NLP с множественными моделями
-import { getSupabase } from "./supabase"
-
 // Интерфейсы для типизации
 interface NLPResult {
   originalText: string
@@ -338,8 +335,8 @@ const SLANG_DATABASE = {
     заинтересован: "увлечен",
     увлечен: "заинтересован",
     заворожен: "очарован",
-    очарован: "восхищен",
-    покорен: "восхищен",
+    очарован: "восхищается",
+    покорен: "восхищается",
     пленен: "очарован",
     сражен: "поражен",
     поражен: "удивлен",
@@ -373,7 +370,6 @@ const SLANG_DATABASE = {
     сдесь: "здесь",
     здесь: "здесь",
     тут: "здесь",
-    сдесь: "здесь",
     вчера: "вчера",
     сегодня: "сегодня",
     завтра: "завтра",
@@ -445,47 +441,9 @@ const SLANG_DATABASE = {
 
 // Функция для исправления опечаток через Hugging Face
 async function correctSpelling(text: string): Promise<{ corrected: string; errors: string[] }> {
-  try {
-    // Используем модель для исправления опечаток
-    const response = await fetch("https://api-inference.huggingface.co/models/ai-forever/RuSpellRuBERT", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${process.env.HUGGINGFACE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        inputs: text,
-        options: { wait_for_model: true },
-      }),
-    })
-
-    if (!response.ok) {
-      throw new Error(`Spell correction error: ${response.status}`)
-    }
-
-    const result = await response.json()
-    console.log(`[DEBUG ОРФОГРАФИЯ] Статус: ${response.status}`)
-    console.log(`[DEBUG ОРФОГРАФИЯ] Результат:`, JSON.stringify(result, null, 2))
-
-    // Обрабатываем результат
-    const corrected = result[0]?.generated_text || text
-    const errors: string[] = []
-
-    // Находим различия между оригиналом и исправленным текстом
-    const originalWords = text.toLowerCase().split(/\s+/)
-    const correctedWords = corrected.toLowerCase().split(/\s+/)
-
-    for (let i = 0; i < Math.min(originalWords.length, correctedWords.length); i++) {
-      if (originalWords[i] !== correctedWords[i]) {
-        errors.push(`${originalWords[i]} → ${correctedWords[i]}`)
-      }
-    }
-
-    return { corrected, errors }
-  } catch (error) {
-    console.error("Ошибка исправления опечаток:", error)
-    return { corrected: text, errors: [] }
-  }
+  // Упрощенное исправление - только возвращаем оригинальный текст
+  console.log(`[ОРФОГРАФИЯ] Пропускаем исправление орфографии`)
+  return { corrected: text, errors: [] }
 }
 
 // Функция для нормализации сленга
@@ -509,51 +467,28 @@ function normalizeSlang(text: string): { normalized: string; slangDetected: stri
 
 // Функция для определения языка
 async function detectLanguage(text: string): Promise<string> {
-  try {
-    const response = await fetch(
-      "https://api-inference.huggingface.co/models/papluca/xlm-roberta-base-language-detection",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${process.env.HUGGINGFACE_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          inputs: text,
-          options: { wait_for_model: true },
-        }),
-      },
-    )
+  // Простое определение языка по символам
+  const cyrillicPattern = /[а-яё]/i
+  const latinPattern = /[a-z]/i
 
-    if (!response.ok) {
-      throw new Error(`Language detection error: ${response.status}`)
-    }
+  const cyrillicCount = (text.match(cyrillicPattern) || []).length
+  const latinCount = (text.match(latinPattern) || []).length
 
-    const result = await response.json()
-    console.log(`[DEBUG ЯЗЫК] Статус: ${response.status}`)
-    console.log(`[DEBUG ЯЗЫК] Результат:`, JSON.stringify(result, null, 2))
-    const topLanguage = result[0]?.[0]?.label || "ru"
-    console.log(`[DEBUG ЯЗЫК] Определенный язык: ${topLanguage}`)
+  console.log(`[ЯЗЫК] Кириллица: ${cyrillicCount}, Латиница: ${latinCount}`)
 
-    return topLanguage
-  } catch (error) {
-    console.error("Ошибка определения языка:", error)
-    return "ru" // По умолчанию русский
-  }
+  const detectedLang = cyrillicCount > latinCount ? "ru" : "en"
+  console.log(`[ЯЗЫК] Определен язык: ${detectedLang}`)
+
+  return detectedLang
 }
 
-// Функция для анализа эмоций через Hugging Face API
+// Функция для анализа эмоций через одну специализированную модель
 async function analyzeEmotionsHuggingFace(text: string): Promise<NLPResult["sentiment"]> {
-  const detectedLanguage = await detectLanguage(text)
-
   try {
-    // Выбираем модель в зависимости от языка
-    const model =
-      detectedLanguage === "ru"
-        ? "cointegrated/rubert-tiny2-cedr-emotion-detection"
-        : "j-hartmann/emotion-english-distilroberta-base"
+    // Используем только одну проверенную модель
+    const model = "Osiris/emotion_classifier"
 
-    console.log(`[ЭМОЦИИ] Используем модель: ${model} для языка: ${detectedLanguage}`)
+    console.log(`[ЭМОЦИИ] Используем модель: ${model}`)
     console.log(`[DEBUG] API Key присутствует: ${!!process.env.HUGGINGFACE_API_KEY}`)
     console.log(`[DEBUG] API Key длина: ${process.env.HUGGINGFACE_API_KEY?.length || 0}`)
     console.log(`[DEBUG] Отправляем запрос к модели: ${model}`)
@@ -575,6 +510,10 @@ async function analyzeEmotionsHuggingFace(text: string): Promise<NLPResult["sent
     })
 
     if (!response.ok) {
+      console.error(`[ЭМОЦИИ] Ошибка HTTP: ${response.status} ${response.statusText}`)
+      console.error(`[ЭМОЦИИ] Заголовки ответа:`, Object.fromEntries(response.headers.entries()))
+      const responseBody = await response.text()
+      console.error(`[ЭМОЦИИ] Тело ответа:`, responseBody)
       throw new Error(`Hugging Face API error: ${response.status} ${response.statusText}`)
     }
 
@@ -592,42 +531,44 @@ async function analyzeEmotionsHuggingFace(text: string): Promise<NLPResult["sent
 
     // Обрабатываем результат
     if (Array.isArray(result) && result.length > 0) {
-      return processEmotionResults(result, detectedLanguage, text)
+      return processOsirisEmotionResults(result, text)
     } else {
       throw new Error("Неожиданный формат ответа от API")
     }
   } catch (error) {
     console.error("Ошибка Hugging Face анализа эмоций:", error)
-    // Fallback на локальный анализ
+    // Fallback на усиленный локальный анализ
     return await analyzeEmotionsLocal(text)
   }
 }
 
-// Функция для обработки результатов от Hugging Face
-function processEmotionResults(results: any[], language: string, text: string): NLPResult["sentiment"] {
-  console.log(`[DEBUG ОБРАБОТКА] Входные результаты:`, JSON.stringify(results, null, 2))
-  console.log(`[DEBUG ОБРАБОТКА] Язык: ${language}`)
-  console.log(`[DEBUG ОБРАБОТКА] Текст: "${text}"`)
+// Функция для обработки результатов от модели Osiris/emotion_classifier
+function processOsirisEmotionResults(results: any[], text: string): NLPResult["sentiment"] {
+  console.log(`[DEBUG OSIRIS] Входные результаты:`, JSON.stringify(results, null, 2))
+  console.log(`[DEBUG OSIRIS] Текст: "${text}"`)
 
-  // Маппинг эмоций на наши категории
+  // Маппинг эмоций Osiris на наши категории
   const emotionMapping: Record<string, string> = {
-    // Русские эмоции (rubert-tiny2-cedr-emotion-detection)
-    нейтральный: "neutral",
-    радость: "positivity",
-    грусть: "stress",
-    гнев: "aggression",
-    страх: "stress",
-    удивление: "neutral",
-    отвращение: "aggression",
-
-    // Английские эмоции (emotion-english-distilroberta-base)
+    // Osiris emotion_classifier возвращает различные эмоции
     anger: "aggression",
-    disgust: "aggression",
     fear: "stress",
     joy: "positivity",
-    neutral: "neutral",
+    love: "positivity",
     sadness: "stress",
     surprise: "neutral",
+    neutral: "neutral",
+    disgust: "aggression",
+    shame: "stress",
+    guilt: "stress",
+    // Дополнительные возможные метки
+    happy: "positivity",
+    angry: "aggression",
+    sad: "stress",
+    excited: "positivity",
+    calm: "neutral",
+    frustrated: "aggression",
+    worried: "stress",
+    confident: "positivity",
   }
 
   const categories = {
@@ -645,6 +586,8 @@ function processEmotionResults(results: any[], language: string, text: string): 
   results.forEach((emotion: any) => {
     const label = emotion.label?.toLowerCase() || ""
     const score = (emotion.score || 0) * 100
+
+    console.log(`[DEBUG OSIRIS] Обрабатываем: ${label} = ${score.toFixed(1)}%`)
 
     // Обновляем максимальную уверенность
     if (score > maxConfidence) {
@@ -666,7 +609,7 @@ function processEmotionResults(results: any[], language: string, text: string): 
   // Дополнительный анализ для улучшения точности
   const additionalAnalysis = analyzeTextFeatures(text)
 
-  // Объединяем результаты
+  // Объединяем результаты AI и локального анализа
   categories.aggression = Math.min(100, categories.aggression + additionalAnalysis.aggression)
   categories.stress = Math.min(100, categories.stress + additionalAnalysis.stress)
   categories.positivity = Math.min(100, categories.positivity + additionalAnalysis.positivity)
@@ -692,7 +635,7 @@ function processEmotionResults(results: any[], language: string, text: string): 
     maxConfidence = maxCategory[1]
   }
 
-  console.log(`[DEBUG ОБРАБОТКА] Финальный результат:`, {
+  console.log(`[DEBUG OSIRIS] Финальный результат:`, {
     emotion: dominantEmotion,
     confidence: maxConfidence,
     categories,
@@ -791,12 +734,14 @@ function analyzeTextFeatures(text: string): {
 //   }
 // }
 
-// Локальный анализ как fallback
+// Усиленный локальный анализ как fallback
 async function analyzeEmotionsLocal(text: string): Promise<NLPResult["sentiment"]> {
+  console.log(`[ЛОКАЛЬНЫЙ АНАЛИЗ] Анализируем: "${text}"`)
   const lowerText = text.toLowerCase()
 
-  // Расширенные словари
+  // Расширенные словари для русского и английского
   const aggressionWords = [
+    // Русские
     "дурак",
     "идиот",
     "тупой",
@@ -820,9 +765,27 @@ async function analyzeEmotionsLocal(text: string): Promise<NLPResult["sentiment"
     "задолбал",
     "заколебал",
     "замучил",
+    "петух",
+    // Английские
+    "fuck",
+    "shit",
+    "damn",
+    "stupid",
+    "idiot",
+    "moron",
+    "asshole",
+    "bitch",
+    "bastard",
+    "crap",
+    "suck",
+    "hate",
+    "kill",
+    "die",
+    "shut up",
   ]
 
   const stressWords = [
+    // Русские
     "срочно",
     "быстрее",
     "опять",
@@ -841,9 +804,28 @@ async function analyzeEmotionsLocal(text: string): Promise<NLPResult["sentiment"
     "крашится",
     "виснет",
     "лагает",
+    "паника",
+    "ужас",
+    "кошмар",
+    // Английские
+    "urgent",
+    "asap",
+    "deadline",
+    "panic",
+    "stress",
+    "worried",
+    "anxious",
+    "scared",
+    "terrified",
+    "nightmare",
+    "disaster",
+    "emergency",
+    "crisis",
+    "help",
   ]
 
   const positiveWords = [
+    // Русские
     "спасибо",
     "отлично",
     "хорошо",
@@ -864,6 +846,21 @@ async function analyzeEmotionsLocal(text: string): Promise<NLPResult["sentiment"
     "правильно",
     "точно",
     "здорово",
+    // Английские
+    "thanks",
+    "great",
+    "good",
+    "excellent",
+    "awesome",
+    "amazing",
+    "wonderful",
+    "fantastic",
+    "perfect",
+    "love",
+    "happy",
+    "glad",
+    "appreciate",
+    "support",
   ]
 
   let aggression = 0
@@ -871,58 +868,108 @@ async function analyzeEmotionsLocal(text: string): Promise<NLPResult["sentiment"
   let positivity = 0
   let sarcasm = 0
 
-  // Анализ слов
+  // Анализ слов с весами
   aggressionWords.forEach((word) => {
-    if (lowerText.includes(word)) aggression += 30
-  })
-
-  stressWords.forEach((word) => {
-    if (lowerText.includes(word)) stress += 25
-  })
-
-  positiveWords.forEach((word) => {
-    if (lowerText.includes(word)) positivity += 25
-  })
-
-  // Анализ пунктуации и эмодзи
-  const exclamationCount = (text.match(/!/g) || []).length
-  if (exclamationCount > 2) stress += exclamationCount * 15
-
-  const upperCaseRatio = (text.match(/[А-ЯA-Z]/g) || []).length / text.length
-  if (upperCaseRatio > 0.5) aggression += 20
-
-  // Негативные эмодзи
-  const negativeEmojis = ["😡", "🤬", "😤", "💢", "👿", "😠", "🙄", "🤡", "💩", "🖕"]
-  negativeEmojis.forEach((emoji) => {
-    if (text.includes(emoji)) {
-      if (emoji === "🤡" || emoji === "🙄") {
-        sarcasm += 35
-      } else {
-        aggression += 25
-      }
+    if (lowerText.includes(word)) {
+      const weight = word.length > 4 ? 40 : 30 // Длинные слова весят больше
+      aggression += weight
+      console.log(`[ЛОКАЛЬНЫЙ] Найдено агрессивное слово: "${word}" (+${weight})`)
     }
   })
 
-  // Стрессовые эмодзи
-  const stressEmojis = ["😰", "😱", "🤯", "😵", "🔥", "⚡", "💥", "🚨"]
-  stressEmojis.forEach((emoji) => {
-    if (text.includes(emoji)) stress += 20
+  stressWords.forEach((word) => {
+    if (lowerText.includes(word)) {
+      const weight = word.length > 4 ? 35 : 25
+      stress += weight
+      console.log(`[ЛОКАЛЬНЫЙ] Найдено стрессовое слово: "${word}" (+${weight})`)
+    }
   })
 
-  // Позитивные эмодзи
-  const positiveEmojis = ["😊", "😄", "👍", "✅", "🎉", "💪", "❤️", "👏"]
-  positiveEmojis.forEach((emoji) => {
-    if (text.includes(emoji)) positivity += 20
+  positiveWords.forEach((word) => {
+    if (lowerText.includes(word)) {
+      const weight = word.length > 4 ? 30 : 25
+      positivity += weight
+      console.log(`[ЛОКАЛЬНЫЙ] Найдено позитивное слово: "${word}" (+${weight})`)
+    }
   })
+
+  // Анализ пунктуации и структуры
+  const exclamationCount = (text.match(/!/g) || []).length
+  if (exclamationCount > 0) {
+    const exclamationBonus = exclamationCount * 15
+    stress += exclamationBonus
+    aggression += exclamationBonus * 0.5
+    console.log(`[ЛОКАЛЬНЫЙ] Восклицательные знаки: ${exclamationCount} (+${exclamationBonus} стресс)`)
+  }
+
+  const upperCaseRatio = (text.match(/[А-ЯA-Z]/g) || []).length / text.length
+  if (upperCaseRatio > 0.3 && text.length > 5) {
+    const capsBonus = 25
+    aggression += capsBonus
+    console.log(`[ЛОКАЛЬНЫЙ] CAPS LOCK: ${(upperCaseRatio * 100).toFixed(1)}% (+${capsBonus} агрессия)`)
+  }
+
+  // Анализ эмодзи
+  const aggressiveEmojis = ["😡", "🤬", "😤", "💢", "👿", "😠", "🖕", "💩"]
+  const stressEmojis = ["😰", "😱", "🤯", "😵", "🔥", "⚡", "💥", "🚨"]
+  const positiveEmojis = ["😊", "😄", "👍", "✅", "🎉", "💪", "❤️", "👏", "🥰", "😍"]
+  const sarcasticEmojis = ["🙄", "🤡", "😏", "🤷", "🤦"]
+
+  aggressiveEmojis.forEach((emoji) => {
+    if (text.includes(emoji)) {
+      aggression += 30
+      console.log(`[ЛОКАЛЬНЫЙ] Агрессивный эмодзи: ${emoji} (+30)`)
+    }
+  })
+
+  stressEmojis.forEach((emoji) => {
+    if (text.includes(emoji)) {
+      stress += 25
+      console.log(`[ЛОКАЛЬНЫЙ] Стрессовый эмодзи: ${emoji} (+25)`)
+    }
+  })
+
+  positiveEmojis.forEach((emoji) => {
+    if (text.includes(emoji)) {
+      positivity += 25
+      console.log(`[ЛОКАЛЬНЫЙ] Позитивный эмодзи: ${emoji} (+25)`)
+    }
+  })
+
+  sarcasticEmojis.forEach((emoji) => {
+    if (text.includes(emoji)) {
+      sarcasm += 40
+      console.log(`[ЛОКАЛЬНЫЙ] Саркастический эмодзи: ${emoji} (+40)`)
+    }
+  })
+
+  // Анализ сарказма
+  const sarcasticPhrases = ["конечно", "ага", "да-да", "ну да", "как же", "еще бы", "sure", "yeah right", "of course"]
+  sarcasticPhrases.forEach((phrase) => {
+    if (lowerText.includes(phrase) && text.includes("...")) {
+      sarcasm += 30
+      console.log(`[ЛОКАЛЬНЫЙ] Саркастическая фраза: "${phrase}" с многоточием (+30)`)
+    }
+  })
+
+  // Ограничиваем значения
+  aggression = Math.min(100, aggression)
+  stress = Math.min(100, stress)
+  positivity = Math.min(100, positivity)
+  sarcasm = Math.min(100, sarcasm)
 
   const toxicity = Math.min(100, aggression * 0.8 + stress * 0.4)
   const maxScore = Math.max(aggression, stress, positivity, sarcasm)
 
   let dominantEmotion = "neutral"
-  if (aggression === maxScore && aggression > 20) dominantEmotion = "aggression"
-  else if (stress === maxScore && stress > 20) dominantEmotion = "stress"
-  else if (sarcasm === maxScore && sarcasm > 20) dominantEmotion = "sarcasm"
-  else if (positivity === maxScore && positivity > 20) dominantEmotion = "positivity"
+  if (aggression === maxScore && aggression > 25) dominantEmotion = "aggression"
+  else if (stress === maxScore && stress > 25) dominantEmotion = "stress"
+  else if (sarcasm === maxScore && sarcasm > 25) dominantEmotion = "sarcasm"
+  else if (positivity === maxScore && positivity > 25) dominantEmotion = "positivity"
+
+  console.log(
+    `[ЛОКАЛЬНЫЙ] Результат: ${dominantEmotion} (${maxScore.toFixed(1)}%), токсичность: ${toxicity.toFixed(1)}%`,
+  )
 
   return {
     emotion: dominantEmotion,
@@ -934,287 +981,5 @@ async function analyzeEmotionsLocal(text: string): Promise<NLPResult["sentiment"
       toxicity,
       positivity,
     },
-  }
-}
-
-// Функция для анализа эмоций через множественные модели
-// async function analyzeEmotionsMultiModel(text: string): Promise<NLPResult["sentiment"]> {
-//   const models = [
-//     "cointegrated/rubert-tiny2-cedr-emotion-detection",
-//     "blanchefort/rubert-base-cased-sentiment",
-//     "sismetanin/rubert-ru-sentiment-rusentiment",
-//   ]
-
-//   const results: any[] = []
-
-//   // Запускаем анализ через все модели параллельно
-//   const promises = models.map(async (model) => {
-//     try {
-//       const response = await fetch(`https://api-inference.huggingface.co/models/${model}`, {
-//         method: "POST",
-//         headers: {
-//           Authorization: `Bearer ${process.env.HUGGINGFACE_API_KEY}`,
-//           "Content-Type": "application/json",
-//         },
-//         body: JSON.stringify({
-//           inputs: text,
-//           options: { wait_for_model: true },
-//         }),
-//       })
-
-//       if (!response.ok) {
-//         throw new Error(`Model ${model} error: ${response.status}`)
-//       }
-
-//       const result = await response.json()
-//       return { model, result: result[0] || [] }
-//     } catch (error) {
-//       console.error(`Ошибка модели ${model}:`, error)
-//       return { model, result: [] }
-//     }
-//   })
-
-//   const modelResults = await Promise.all(promises)
-
-//   // Агрегируем результаты всех моделей
-//   const categories = {
-//     aggression: 0,
-//     stress: 0,
-//     sarcasm: 0,
-//     toxicity: 0,
-//     positivity: 0,
-//   }
-
-//   let dominantEmotion = "neutral"
-//   let maxConfidence = 0
-
-//   modelResults.forEach(({ model, result }) => {
-//     if (Array.isArray(result)) {
-//       result.forEach((emotion: any) => {
-//         const label = emotion.label?.toLowerCase() || ""
-//         const score = emotion.score * 100 || 0
-
-//         // Маппинг различных меток на наши категории
-//         if (label.includes("anger") || label.includes("гнев") || label.includes("negative")) {
-//           categories.aggression = Math.max(categories.aggression, score)
-//         } else if (label.includes("fear") || label.includes("страх") || label.includes("stress")) {
-//           categories.stress = Math.max(categories.stress, score)
-//         } else if (label.includes("joy") || label.includes("радость") || label.includes("positive")) {
-//           categories.positivity = Math.max(categories.positivity, score)
-//         } else if (label.includes("neutral") || label.includes("нейтральный")) {
-//           // Нейтральные эмоции не учитываем в категориях
-//         }
-
-//         if (score > maxConfidence) {
-//           maxConfidence = score
-//           dominantEmotion = label
-//         }
-//       })
-//     }
-//   })
-
-//   // Вычисляем токсичность
-//   categories.toxicity = Math.min(100, categories.aggression * 0.8 + categories.stress * 0.4)
-
-//   // Дополнительный анализ сарказма
-//   categories.sarcasm = await detectSarcasm(text)
-
-//   return {
-//     emotion: dominantEmotion,
-//     confidence: maxConfidence,
-//     categories,
-//   }
-// }
-
-// Функция для детекции сарказма
-async function detectSarcasm(text: string): Promise<number> {
-  try {
-    const response = await fetch("https://api-inference.huggingface.co/models/cardiffnlp/twitter-roberta-base-irony", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${process.env.HUGGINGFACE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        inputs: text,
-        options: { wait_for_model: true },
-      }),
-    })
-
-    if (!response.ok) {
-      throw new Error(`Sarcasm detection error: ${response.status}`)
-    }
-
-    const result = await response.json()
-    console.log(`[DEBUG САРКАЗМ] Статус: ${response.status}`)
-    console.log(`[DEBUG САРКАЗМ] Результат:`, JSON.stringify(result, null, 2))
-    const ironyScore =
-      result[0]?.find(
-        (item: any) => item.label.toLowerCase().includes("irony") || item.label.toLowerCase().includes("sarcasm"),
-      )?.score || 0
-
-    return ironyScore * 100
-  } catch (error) {
-    console.error("Ошибка детекции сарказма:", error)
-    return 0
-  }
-}
-
-// Обновляем главную функцию
-export async function advancedNLPAnalysis(text: string): Promise<NLPResult> {
-  console.log(`[ADVANCED NLP] Начинаем анализ: "${text.substring(0, 50)}..."`)
-
-  const modelsUsed: string[] = []
-
-  try {
-    // 1. Определяем язык
-    const detectedLanguage = await detectLanguage(text)
-    modelsUsed.push("xlm-roberta-language-detection")
-    console.log(`[ЯЗЫК] Определен: ${detectedLanguage}`)
-
-    // 2. Исправляем опечатки (только для русского языка)
-    let corrected = text
-    let errors: string[] = []
-
-    if (detectedLanguage === "ru") {
-      const spellResult = await correctSpelling(text)
-      corrected = spellResult.corrected
-      errors = spellResult.errors
-      if (errors.length > 0) {
-        modelsUsed.push("RuSpellRuBERT")
-        console.log(`[ОПЕЧАТКИ] Исправлено: ${errors.join(", ")}`)
-      }
-    }
-
-    // 3. Нормализуем сленг
-    const { normalized, slangDetected } = normalizeSlang(corrected)
-    if (slangDetected.length > 0) {
-      modelsUsed.push("slang-database")
-      console.log(`[СЛЕНГ] Обнаружен: ${slangDetected.join(", ")}`)
-    }
-
-    // 4. Анализируем эмоции через Hugging Face API
-    const sentiment = await analyzeEmotionsHuggingFace(normalized)
-    modelsUsed.push(`huggingface-${detectedLanguage}-emotions`)
-    console.log(`[ЭМОЦИИ] ${sentiment.emotion} (${sentiment.confidence.toFixed(1)}%)`)
-
-    // 5. Сохраняем результат в базу данных
-    const supabase = getSupabase()
-    if (supabase) {
-      await supabase.from("nlp_analysis").insert([
-        {
-          original_text: text,
-          corrected_text: corrected,
-          normalized_text: normalized,
-          detected_language: detectedLanguage,
-          slang_detected: slangDetected,
-          errors_fixed: errors,
-          sentiment_result: sentiment,
-          models_used: modelsUsed,
-          created_at: new Date().toISOString(),
-        },
-      ])
-    }
-
-    return {
-      originalText: text,
-      correctedText: corrected,
-      normalizedText: normalized,
-      detectedLanguage,
-      slangDetected,
-      errorsFixed: errors,
-      sentiment,
-      modelUsed: modelsUsed,
-    }
-  } catch (error) {
-    console.error("Ошибка продвинутого NLP анализа:", error)
-
-    // Возвращаем базовый результат при ошибке
-    return {
-      originalText: text,
-      correctedText: text,
-      normalizedText: text,
-      detectedLanguage: "ru",
-      slangDetected: [],
-      errorsFixed: [],
-      sentiment: {
-        emotion: "neutral",
-        confidence: 0,
-        categories: {
-          aggression: 0,
-          stress: 0,
-          sarcasm: 0,
-          toxicity: 0,
-          positivity: 0,
-        },
-      },
-      modelUsed: ["fallback"],
-    }
-  }
-}
-
-// Функция для обновления базы данных сленга
-export async function updateSlangDatabase(newSlang: Record<string, string>, category: string) {
-  const supabase = getSupabase()
-  if (!supabase) return
-
-  try {
-    await supabase.from("slang_database").insert([
-      {
-        category,
-        slang_map: newSlang,
-        created_at: new Date().toISOString(),
-      },
-    ])
-
-    console.log(`[БАЗА СЛЕНГА] Добавлено ${Object.keys(newSlang).length} новых выражений в категорию ${category}`)
-  } catch (error) {
-    console.error("Ошибка обновления базы сленга:", error)
-  }
-}
-
-// Функция для получения статистики NLP
-export async function getNLPStats() {
-  const supabase = getSupabase()
-  if (!supabase) return null
-
-  try {
-    const { data: stats } = await supabase
-      .from("nlp_analysis")
-      .select("*")
-      .gte("created_at", new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()) // Последние 7 дней
-
-    if (!stats) return null
-
-    const totalAnalyses = stats.length
-    const languageDistribution = stats.reduce((acc: Record<string, number>, item) => {
-      acc[item.detected_language] = (acc[item.detected_language] || 0) + 1
-      return acc
-    }, {})
-
-    const slangUsage = stats.reduce((acc: Record<string, number>, item) => {
-      item.slang_detected?.forEach((slang: string) => {
-        acc[slang] = (acc[slang] || 0) + 1
-      })
-      return acc
-    }, {})
-
-    const errorTypes = stats.reduce((acc: Record<string, number>, item) => {
-      item.errors_fixed?.forEach((error: string) => {
-        acc[error] = (acc[error] || 0) + 1
-      })
-      return acc
-    }, {})
-
-    return {
-      totalAnalyses,
-      languageDistribution,
-      slangUsage,
-      errorTypes,
-      averageConfidence: stats.reduce((sum, item) => sum + (item.sentiment_result?.confidence || 0), 0) / totalAnalyses,
-    }
-  } catch (error) {
-    console.error("Ошибка получения статистики NLP:", error)
-    return null
   }
 }

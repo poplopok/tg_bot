@@ -1,4 +1,6 @@
 // Интерфейсы для типизации
+import { analyzeEmotionsTransformers } from "./nlp-transformers"
+
 interface NLPResult {
   originalText: string
   correctedText: string
@@ -485,8 +487,8 @@ async function detectLanguage(text: string): Promise<string> {
 // Функция для анализа эмоций через одну специализированную модель
 async function analyzeEmotionsHuggingFace(text: string): Promise<NLPResult["sentiment"]> {
   try {
-    // Используем только одну проверенную модель
-    const model = "Osiris/emotion_classifier"
+    // Используем проверенную рабочую модель
+    const model = "j-hartmann/emotion-english-distilroberta-base"
 
     console.log(`[ЭМОЦИИ] Используем модель: ${model}`)
     console.log(`[DEBUG] API Key присутствует: ${!!process.env.HUGGINGFACE_API_KEY}`)
@@ -531,39 +533,48 @@ async function analyzeEmotionsHuggingFace(text: string): Promise<NLPResult["sent
 
     // Обрабатываем результат
     if (Array.isArray(result) && result.length > 0) {
-      return processOsirisEmotionResults(result, text)
+      return processDistilRobertaEmotionResults(result, text)
     } else {
       throw new Error("Неожиданный формат ответа от API")
     }
   } catch (error) {
     console.error("Ошибка Hugging Face анализа эмоций:", error)
-    // Fallback на усиленный локальный анализ
+
+    // Сначала пробуем transformers
+    console.log("[FALLBACK] Пробуем Python transformers...")
+    try {
+      const transformersResult = await analyzeEmotionsTransformers(text)
+      if (transformersResult.success && transformersResult.results) {
+        return processTransformersResults(transformersResult.results, text)
+      }
+    } catch (transformersError) {
+      console.error("Ошибка transformers анализа:", transformersError)
+    }
+
+    // Fallback на локальный анализ
+    console.log("[FALLBACK] Используем локальный анализ...")
     return await analyzeEmotionsLocal(text)
   }
 }
 
-// Функция для обработки результатов от модели Osiris/emotion_classifier
-function processOsirisEmotionResults(results: any[], text: string): NLPResult["sentiment"] {
-  console.log(`[DEBUG OSIRIS] Входные результаты:`, JSON.stringify(results, null, 2))
-  console.log(`[DEBUG OSIRIS] Текст: "${text}"`)
+// Функция для обработки результатов от модели j-hartmann/emotion-english-distilroberta-base
+function processDistilRobertaEmotionResults(results: any[], text: string): NLPResult["sentiment"] {
+  console.log(`[DEBUG DISTILROBERTA] Входные результаты:`, JSON.stringify(results, null, 2))
+  console.log(`[DEBUG DISTILROBERTA] Текст: "${text}"`)
 
-  // Маппинг эмоций Osiris на наши категории
+  // Маппинг эмоций DistilRoBERTa на наши категории
   const emotionMapping: Record<string, string> = {
-    // Osiris emotion_classifier возвращает различные эмоции
+    // DistilRoBERTa emotion labels
     anger: "aggression",
+    disgust: "aggression",
     fear: "stress",
     joy: "positivity",
-    love: "positivity",
+    neutral: "neutral",
     sadness: "stress",
     surprise: "neutral",
-    neutral: "neutral",
-    disgust: "aggression",
-    shame: "stress",
-    guilt: "stress",
     // Дополнительные возможные метки
     happy: "positivity",
-    angry: "aggression",
-    sad: "stress",
+    love: "positivity",
     excited: "positivity",
     calm: "neutral",
     frustrated: "aggression",
@@ -587,7 +598,7 @@ function processOsirisEmotionResults(results: any[], text: string): NLPResult["s
     const label = emotion.label?.toLowerCase() || ""
     const score = (emotion.score || 0) * 100
 
-    console.log(`[DEBUG OSIRIS] Обрабатываем: ${label} = ${score.toFixed(1)}%`)
+    console.log(`[DEBUG DISTILROBERTA] Обрабатываем: ${label} = ${score.toFixed(1)}%`)
 
     // Обновляем максимальную уверенность
     if (score > maxConfidence) {
@@ -635,7 +646,7 @@ function processOsirisEmotionResults(results: any[], text: string): NLPResult["s
     maxConfidence = maxCategory[1]
   }
 
-  console.log(`[DEBUG OSIRIS] Финальный результат:`, {
+  console.log(`[DEBUG DISTILROBERTA] Финальный результат:`, {
     emotion: dominantEmotion,
     confidence: maxConfidence,
     categories,
@@ -981,5 +992,111 @@ async function analyzeEmotionsLocal(text: string): Promise<NLPResult["sentiment"
       toxicity,
       positivity,
     },
+  }
+}
+
+// Функция для обработки результатов от Python transformers
+function processTransformersResults(results: any[], text: string): NLPResult["sentiment"] {
+  console.log(`[DEBUG TRANSFORMERS] Входные результаты:`, JSON.stringify(results, null, 2))
+  console.log(`[DEBUG TRANSFORMERS] Текст: "${text}"`)
+
+  // Маппинг эмоций Osiris на наши категории
+  const emotionMapping: Record<string, string> = {
+    // Osiris emotion_classifier возвращает различные эмоции
+    anger: "aggression",
+    fear: "stress",
+    joy: "positivity",
+    love: "positivity",
+    sadness: "stress",
+    surprise: "neutral",
+    neutral: "neutral",
+    disgust: "aggression",
+    shame: "stress",
+    guilt: "stress",
+    // Дополнительные возможные метки
+    happy: "positivity",
+    angry: "aggression",
+    sad: "stress",
+    excited: "positivity",
+    calm: "neutral",
+    frustrated: "aggression",
+    worried: "stress",
+    confident: "positivity",
+  }
+
+  const categories = {
+    aggression: 0,
+    stress: 0,
+    sarcasm: 0,
+    toxicity: 0,
+    positivity: 0,
+  }
+
+  let dominantEmotion = "neutral"
+  let maxConfidence = 0
+
+  // Обрабатываем результаты
+  results.forEach((emotion: any) => {
+    const label = emotion.label?.toLowerCase() || ""
+    const score = (emotion.score || 0) * 100
+
+    console.log(`[DEBUG TRANSFORMERS] Обрабатываем: ${label} = ${score.toFixed(1)}%`)
+
+    // Обновляем максимальную уверенность
+    if (score > maxConfidence) {
+      maxConfidence = score
+      dominantEmotion = emotionMapping[label] || "neutral"
+    }
+
+    // Распределяем по категориям
+    const mappedCategory = emotionMapping[label]
+    if (mappedCategory === "aggression") {
+      categories.aggression = Math.max(categories.aggression, score)
+    } else if (mappedCategory === "stress") {
+      categories.stress = Math.max(categories.stress, score)
+    } else if (mappedCategory === "positivity") {
+      categories.positivity = Math.max(categories.positivity, score)
+    }
+  })
+
+  // Дополнительный анализ для улучшения точности
+  const additionalAnalysis = analyzeTextFeatures(text)
+
+  // Объединяем результаты AI и локального анализа
+  categories.aggression = Math.min(100, categories.aggression + additionalAnalysis.aggression)
+  categories.stress = Math.min(100, categories.stress + additionalAnalysis.stress)
+  categories.positivity = Math.min(100, categories.positivity + additionalAnalysis.positivity)
+  categories.sarcasm = additionalAnalysis.sarcasm
+
+  // Вычисляем токсичность
+  categories.toxicity = Math.min(100, categories.aggression * 0.8 + categories.stress * 0.4)
+
+  // Пересчитываем доминирующую эмоцию с учетом дополнительного анализа
+  const finalScores = {
+    aggression: categories.aggression,
+    stress: categories.stress,
+    positivity: categories.positivity,
+    sarcasm: categories.sarcasm,
+  }
+
+  const maxCategory = Object.entries(finalScores).reduce((a, b) =>
+    finalScores[a[0] as keyof typeof finalScores] > finalScores[b[0] as keyof typeof finalScores] ? a : b,
+  )
+
+  if (maxCategory[1] > maxConfidence) {
+    dominantEmotion = maxCategory[0]
+    maxConfidence = maxCategory[1]
+  }
+
+  console.log(`[DEBUG TRANSFORMERS] Финальный результат:`, {
+    emotion: dominantEmotion,
+    confidence: maxConfidence,
+    categories,
+  })
+
+  return {
+    emotion: dominantEmotion,
+    confidence: maxConfidence,
+    categories,
   }
 }

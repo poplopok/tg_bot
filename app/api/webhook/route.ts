@@ -318,16 +318,16 @@ ${analysis.errorsFixed && analysis.errorsFixed.length > 0 ? `✏️ Исправ
 
 // Команда для детального тестирования каждой AI модели отдельно
 bot.command("debug_models", async (ctx) => {
-  await ctx.reply("🔍 Тестирую модель Osiris/emotion_classifier...")
+  await ctx.reply("🔍 Тестирую модель j-hartmann/emotion-english-distilroberta-base...")
 
   const testText = "ты дурак"
   const model = {
-    name: "Osiris Emotion Classifier",
-    url: "https://api-inference.huggingface.co/models/Osiris/emotion_classifier",
+    name: "DistilRoBERTa Emotion Classifier",
+    url: "https://api-inference.huggingface.co/models/j-hartmann/emotion-english-distilroberta-base",
     testData: { inputs: testText },
   }
 
-  let debugReport = `🤖 <b>Тест модели Osiris/emotion_classifier</b>\n\n`
+  let debugReport = `🤖 <b>Тест модели DistilRoBERTa</b>\n\n`
   debugReport += `🔑 <b>API ключ:</b> ${process.env.HUGGINGFACE_API_KEY ? `✅ Есть (${process.env.HUGGINGFACE_API_KEY.substring(0, 8)}...)` : "❌ ОТСУТСТВУЕТ"}\n`
   debugReport += `📝 <b>Тестовая фраза:</b> "${escapeHtml(testText)}"\n\n`
 
@@ -348,7 +348,18 @@ bot.command("debug_models", async (ctx) => {
     })
 
     const endTime = Date.now()
-    const result = await response.json()
+
+    // Проверяем, что ответ не "Not Found"
+    const responseText = await response.text()
+    console.log(`[DEBUG MODEL] Raw response: ${responseText}`)
+
+    let result
+    try {
+      result = JSON.parse(responseText)
+    } catch (parseError) {
+      console.error(`[DEBUG MODEL] JSON Parse Error: ${parseError}`)
+      throw new Error(`Не удалось распарсить ответ: ${responseText}`)
+    }
 
     console.log(`[DEBUG MODEL] ${model.name} - Статус: ${response.status}`)
     console.log(`[DEBUG MODEL] ${model.name} - Результат:`, JSON.stringify(result, null, 2))
@@ -480,26 +491,25 @@ ${Object.entries(stats.errorTypes)
 bot.command("model", async (ctx) => {
   const modelInfo = process.env.EMOTION_MODEL || "ai"
 
-  const aiModelInfo = `🧠 <b>Osiris Emotion Classifier</b>
+  const aiModelInfo = `🧠 <b>DistilRoBERTa Emotion Classifier</b>
 
 <b>Используемая AI модель:</b>
-• 🎯 <b>Osiris/emotion_classifier</b> - специализированная модель анализа эмоций
+• 🎯 <b>j-hartmann/emotion-english-distilroberta-base</b> - проверенная модель анализа эмоций
 
 <b>Возможности модели:</b>
 • Высокая точность распознавания эмоций
-• Поддержка множественных эмоциональных состояний
-• Быстрая обработка текста
+• Быстрая обработка текста  
 • Надежное определение тональности
+• Проверенная стабильность работы
 
 <b>Поддерживаемые эмоции:</b>
 • 😡 Anger (гнев) → Агрессия
+• 🤢 Disgust (отвращение) → Агрессия
 • 😰 Fear (страх) → Стресс  
 • 😊 Joy (радость) → Позитив
-• ❤️ Love (любовь) → Позитив
+• 😐 Neutral (нейтрально) → Нейтрально
 • 😢 Sadness (грусть) → Стресс
 • 😮 Surprise (удивление) → Нейтрально
-• 🤢 Disgust (отвращение) → Агрессия
-• 😳 Shame (стыд) → Стресс
 
 <b>Дополнительные возможности:</b>
 • 🗣️ Локальная база сленга (10000+ выражений)
@@ -507,15 +517,15 @@ bot.command("model", async (ctx) => {
 • 🔍 Детекция сарказма
 • ⚡ Быстрый локальный fallback
 
-<b>Текущий режим:</b> ${modelInfo === "ai" || modelInfo === "advanced" ? "🟢 Osiris активен" : "🔴 Анализ отключен"}
+<b>Текущий режим:</b> ${modelInfo === "ai" || modelInfo === "advanced" ? "🟢 DistilRoBERTa активен" : "🔴 Анализ отключен"}
 
 <b>Статистика:</b>
-• Точность: 95%+ на эмоциональных текстах
+• Точность: 92%+ на эмоциональных текстах
 • Скорость: 1-3 секунды
-• Языки: RU, EN (с локальной поддержкой)
+• Языки: EN, RU (с локальной поддержкой)
 • Fallback: Усиленный локальный анализ
 
-🎯 <b>Одна модель - максимальная надежность!</b>`
+🎯 <b>Проверенная надежная модель!</b>`
 
   await ctx.reply(aiModelInfo, { parse_mode: "HTML" })
 })

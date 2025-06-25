@@ -561,15 +561,6 @@ async function analyzeEmotionsHuggingFace(text: string): Promise<NLPResult["sent
 function processDistilRobertaEmotionResults(results: any[], text: string): NLPResult["sentiment"] {
   console.log(`[DEBUG DISTILROBERTA] Входные результаты:`, JSON.stringify(results, null, 2))
   console.log(`[DEBUG DISTILROBERTA] Текст: "${text}"`)
-  console.log(`[DEBUG DISTILROBERTA] Тип результатов: ${typeof results}`)
-  console.log(`[DEBUG DISTILROBERTA] Является массивом: ${Array.isArray(results)}`)
-  console.log(`[DEBUG DISTILROBERTA] Длина: ${results?.length}`)
-
-  // Проверяем структуру первого элемента
-  if (results && results.length > 0) {
-    console.log(`[DEBUG DISTILROBERTA] Первый элемент:`, results[0])
-    console.log(`[DEBUG DISTILROBERTA] Ключи первого элемента:`, Object.keys(results[0] || {}))
-  }
 
   // Маппинг эмоций DistilRoBERTa на наши категории
   const emotionMapping: Record<string, string> = {
@@ -602,68 +593,45 @@ function processDistilRobertaEmotionResults(results: any[], text: string): NLPRe
   let dominantEmotion = "neutral"
   let maxConfidence = 0
 
-  // Обрабатываем результаты с проверкой формата
-  if (Array.isArray(results)) {
-    results.forEach((emotion: any, index: number) => {
-      console.log(`[DEBUG DISTILROBERTA] Обрабатываем элемент ${index}:`, emotion)
+  // Обрабатываем результаты
+  results.forEach((emotion: any) => {
+    // Безопасно извлекаем label и score
+    const label = (emotion?.label || emotion?.LABEL || "unknown").toString().toLowerCase()
+    const score = Number(emotion?.score || emotion?.SCORE || 0) * 100
 
-      // Пробуем разные варианты получения label и score
-      const label = (emotion?.label || emotion?.LABEL || emotion?.name || "unknown").toLowerCase()
-      const score = (emotion?.score || emotion?.SCORE || emotion?.confidence || 0) * 100
+    console.log(`[DEBUG DISTILROBERTA] Обрабатываем: ${label} = ${score.toFixed(1)}%`)
 
-      console.log(`[DEBUG DISTILROBERTA] Извлечено: ${label} = ${score.toFixed(1)}%`)
+    // Проверяем, что score является числом
+    if (isNaN(score)) {
+      console.warn(`[DEBUG DISTILROBERTA] Некорректный score для ${label}: ${emotion?.score}`)
+      return
+    }
 
-      if (label !== "unknown" && !isNaN(score)) {
-        // Обновляем максимальную уверенность
-        if (score > maxConfidence) {
-          maxConfidence = score
-          dominantEmotion = emotionMapping[label] || "neutral"
-        }
+    // Обновляем максимальную уверенность
+    if (score > maxConfidence) {
+      maxConfidence = score
+      dominantEmotion = emotionMapping[label] || "neutral"
+    }
 
-        // Распределяем по категориям
-        const mappedCategory = emotionMapping[label]
-        if (mappedCategory === "aggression") {
-          categories.aggression = Math.max(categories.aggression, score)
-        } else if (mappedCategory === "stress") {
-          categories.stress = Math.max(categories.stress, score)
-        } else if (mappedCategory === "positivity") {
-          categories.positivity = Math.max(categories.positivity, score)
-        }
-      }
-    })
-  }
+    // Распределяем по категориям
+    const mappedCategory = emotionMapping[label]
+    if (mappedCategory === "aggression") {
+      categories.aggression = Math.max(categories.aggression, score)
+    } else if (mappedCategory === "stress") {
+      categories.stress = Math.max(categories.stress, score)
+    } else if (mappedCategory === "positivity") {
+      categories.positivity = Math.max(categories.positivity, score)
+    }
+  })
 
-  // Если не удалось извлечь данные из API, используем локальный анализ
-  if (maxConfidence === 0) {
-    console.log(`[DEBUG DISTILROBERTA] Не удалось извлечь данные из API, используем локальный анализ`)
-    const localAnalysis = analyzeTextFeatures(text)
-    categories.aggression = localAnalysis.aggression
-    categories.stress = localAnalysis.stress
-    categories.positivity = localAnalysis.positivity
-    categories.sarcasm = localAnalysis.sarcasm
+  // Дополнительный анализ для улучшения точности
+  const additionalAnalysis = analyzeTextFeatures(text)
 
-    const maxLocal = Math.max(
-      localAnalysis.aggression,
-      localAnalysis.stress,
-      localAnalysis.positivity,
-      localAnalysis.sarcasm,
-    )
-    if (localAnalysis.aggression === maxLocal && maxLocal > 25) dominantEmotion = "aggression"
-    else if (localAnalysis.stress === maxLocal && maxLocal > 25) dominantEmotion = "stress"
-    else if (localAnalysis.positivity === maxLocal && maxLocal > 25) dominantEmotion = "positivity"
-    else if (localAnalysis.sarcasm === maxLocal && maxLocal > 25) dominantEmotion = "sarcasm"
-
-    maxConfidence = maxLocal
-  } else {
-    // Дополнительный анализ для улучшения точности
-    const additionalAnalysis = analyzeTextFeatures(text)
-
-    // Объединяем результаты AI и локального анализа
-    categories.aggression = Math.min(100, categories.aggression + additionalAnalysis.aggression)
-    categories.stress = Math.min(100, categories.stress + additionalAnalysis.stress)
-    categories.positivity = Math.min(100, categories.positivity + additionalAnalysis.positivity)
-    categories.sarcasm = additionalAnalysis.sarcasm
-  }
+  // Объединяем результаты AI и локального анализа
+  categories.aggression = Math.min(100, categories.aggression + additionalAnalysis.aggression)
+  categories.stress = Math.min(100, categories.stress + additionalAnalysis.stress)
+  categories.positivity = Math.min(100, categories.positivity + additionalAnalysis.positivity)
+  categories.sarcasm = additionalAnalysis.sarcasm
 
   // Вычисляем токсичность
   categories.toxicity = Math.min(100, categories.aggression * 0.8 + categories.stress * 0.4)
@@ -1140,5 +1108,66 @@ function processTransformersResults(results: any[], text: string): NLPResult["se
   }
 }
 
-// В конце файла добавьте:
-export { analyzeEmotionsLocal }
+// Экспортируем функции для использования в других модулях
+export { analyzeEmotionsLocal, analyzeEmotionsHuggingFace, advancedNLPAnalysis }
+
+// Главная функция для продвинутого NLP анализа
+export async function advancedNLPAnalysis(text: string): Promise<NLPResult> {
+  console.log(`[ADVANCED NLP] Начинаем анализ: "${text.substring(0, 50)}..."`)
+
+  try {
+    // 1. Определяем язык
+    const detectedLanguage = await detectLanguage(text)
+    console.log(`[ADVANCED NLP] Определен язык: ${detectedLanguage}`)
+
+    // 2. Исправляем орфографию
+    const { corrected: correctedText, errors: errorsFixed } = await correctSpelling(text)
+    console.log(`[ADVANCED NLP] Исправлено ошибок: ${errorsFixed.length}`)
+
+    // 3. Нормализуем сленг
+    const { normalized: normalizedText, slangDetected } = normalizeSlang(correctedText)
+    console.log(`[ADVANCED NLP] Обнаружено сленга: ${slangDetected.length}`)
+
+    // 4. Анализируем эмоции через AI
+    const sentiment = await analyzeEmotionsHuggingFace(normalizedText)
+    console.log(`[ADVANCED NLP] AI результат: ${sentiment.emotion} (${sentiment.confidence.toFixed(1)}%)`)
+
+    return {
+      originalText: text,
+      correctedText,
+      normalizedText,
+      detectedLanguage,
+      slangDetected,
+      errorsFixed,
+      sentiment,
+      modelUsed: ["j-hartmann/emotion-english-distilroberta-base", "local-analysis"],
+    }
+  } catch (error) {
+    console.error("[ADVANCED NLP] Ошибка:", error)
+
+    // Fallback на локальный анализ
+    const sentiment = await analyzeEmotionsLocal(text)
+
+    return {
+      originalText: text,
+      correctedText: text,
+      normalizedText: text,
+      detectedLanguage: "ru",
+      slangDetected: [],
+      errorsFixed: [],
+      sentiment,
+      modelUsed: ["local-fallback"],
+    }
+  }
+}
+
+// Функция для получения статистики NLP (заглушка)
+export async function getNLPStats() {
+  return {
+    totalAnalyses: 0,
+    averageConfidence: 0,
+    languageDistribution: {},
+    slangUsage: {},
+    errorTypes: {},
+  }
+}

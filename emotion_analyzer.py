@@ -6,13 +6,11 @@ import io
 
 class EmotionAnalyzer:
     def __init__(self):
-        # Текстовая модель (без изменений)
         self.tokenizer = AutoTokenizer.from_pretrained("MaxKazak/ruBert-base-russian-emotion-detection")
         self.text_model = AutoModelForSequenceClassification.from_pretrained("MaxKazak/ruBert-base-russian-emotion-detection")
         self.text_model.eval()
         self.text_id2label = self.text_model.config.id2label
 
-        # Аудио модель (из твоего примера)
         self.feature_extractor = Wav2Vec2FeatureExtractor.from_pretrained("facebook/hubert-large-ls960-ft")
         self.audio_model = HubertForSequenceClassification.from_pretrained("xbgoose/hubert-speech-emotion-recognition-russian-dusha-finetuned")
         self.audio_model.eval()
